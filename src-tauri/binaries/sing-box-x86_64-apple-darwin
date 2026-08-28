@@ -1,0 +1,4 @@
+#!/bin/sh
+# macOS 开发占位:真实内核请替换为 sing-box 的 darwin 二进制(brew install sing-box 后 cp 过来)
+echo "[placeholder] 这是 sing-box 占位脚本,仅保证 macOS 端编译打包通过;请替换为真实二进制" >&2
+exit 1

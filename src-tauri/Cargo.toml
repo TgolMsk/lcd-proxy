@@ -1,0 +1,33 @@
+[package]
+name = "lcd-proxy"
+version = "0.1.0"
+description = "LCD 复古风格订阅式代理客户端(sing-box 内核)"
+edition = "2021"
+rust-version = "1.77"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon", "image-png"] }
+tauri-plugin-shell = "2"
+tauri-plugin-single-instance = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["net", "time"] }
+reqwest = { version = "0.12", default-features = false, features = [
+  "rustls-tls",
+  "http2",
+  "gzip",
+  "deflate",
+  "charset",
+] }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+winreg = "0.55"
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+strip = true

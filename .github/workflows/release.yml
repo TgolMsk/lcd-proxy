@@ -1,0 +1,94 @@
+# ============================================================
+#  自动构建 Windows 安装包 (.msi / .nsis.exe)
+#
+#  用法:
+#    1. 打一个以 v 开头的 tag 并推送,例如:
+#         git tag v0.1.0
+#         git push origin v0.1.0
+#    2. Actions 自动在 Windows runner 上构建,产物挂到
+#       GitHub Releases(默认是草稿,确认后点发布即可)
+#    也可在 Actions 页面手动点 "Run workflow" 触发(workflow_dispatch)
+#
+#  sing-box 内核:构建时自动从官方 GitHub Releases 下载(版本见下方
+#  SING_BOX_VERSION)。若仓库里已提交 src-tauri/binaries/
+#  sing-box-x86_64-pc-windows-msvc.exe,则跳过下载、用提交的版本。
+#
+#  费用:公开仓库完全免费;私有仓库走每月 2000 分钟免费额度,
+#        Windows 按 2 倍计,一次构建约消耗 20~30 分钟额度。
+# ============================================================
+
+name: Release (Windows)
+
+on:
+  push:
+    tags:
+      - 'v*'          # 推送 v 开头的 tag 时触发
+  workflow_dispatch:  # 允许在 Actions 页面手动触发
+
+permissions:
+  contents: write     # tauri-action 需要写权限来创建 Release
+
+env:
+  # sing-box 内核版本(⚠️ 官方版 ≥1.6 不含 SSR 支持,见 README)
+  SING_BOX_VERSION: '1.12.4'
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 下载 sing-box 内核(sidecar)
+        shell: pwsh
+        run: |
+          $dest = "src-tauri/binaries/sing-box-x86_64-pc-windows-msvc.exe"
+          if (Test-Path $dest) {
+            Write-Host "已存在提交的内核二进制,跳过下载:$dest"
+            exit 0
+          }
+          $ver = "${{ env.SING_BOX_VERSION }}"
+          $url = "https://github.com/SagerNet/sing-box/releases/download/v$ver/sing-box-$ver-windows-amd64.zip"
+          Write-Host "下载 $url"
+          Invoke-WebRequest -Uri $url -OutFile singbox.zip
+          Expand-Archive singbox.zip -DestinationPath singbox-tmp
+          New-Item -ItemType Directory -Force -Path "src-tauri/binaries" | Out-Null
+          $exe = Get-ChildItem -Recurse singbox-tmp -Filter sing-box.exe | Select-Object -First 1
+          if (-not $exe) { throw "压缩包里没找到 sing-box.exe" }
+          Copy-Item $exe.FullName $dest
+          Write-Host "内核就绪:$dest"
+
+      - name: 安装 Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: 安装 Rust 工具链
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: 缓存 Rust 构建产物
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: './src-tauri -> target'
+
+      - name: 安装前端依赖
+        run: npm ci
+
+      - name: 前端单元测试(协议解析器)
+        run: npm test
+
+      - name: 构建并发布到 Release
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: 'LCD Proxy ${{ github.ref_name }}'
+          releaseBody: '下载下方的 .msi 或 .exe 安装包安装使用。'
+          releaseDraft: true     # 先生成草稿,人工确认后再发布
+          prerelease: false
+          args: --target x86_64-pc-windows-msvc
