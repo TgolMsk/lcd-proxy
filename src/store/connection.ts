@@ -1,9 +1,16 @@
 import { listen } from "@tauri-apps/api/event";
 import { Node } from "../parser/types";
 import { buildSingBoxConfig, PROXY_SERVER } from "../config/singbox";
-import { startKernel, stopKernel, setSystemProxy, tcpPing } from "../api/backend";
+import {
+  startKernel,
+  stopKernel,
+  setSystemProxy,
+  tcpPing,
+  isElevated,
+  relaunchAsAdmin,
+} from "../api/backend";
 import { createStore, useStore } from "./createStore";
-import { nodesStore } from "./nodes";
+import { nodesStore, setTunMode } from "./nodes";
 
 /** off=待机 connecting=连接中 on=已连接 fault=失败 */
 export type ConnStatus = "off" | "connecting" | "on" | "fault";
@@ -28,6 +35,49 @@ export function logStatus(message: string) {
   connectionStore.set({ message });
 }
 
+/** 确保 TUN 所需管理员权限;不足则以管理员重启(成功后进程退出),用户取消则抛错 */
+async function ensureTunElevation(): Promise<void> {
+  if (await isElevated()) return;
+  logStatus("TUN 模式需要管理员权限,正在以管理员身份重启 …");
+  await relaunchAsAdmin(); // 成功:进程退出;取消:抛错
+}
+
+/**
+ * 切换 TUN 模式(UI 开关调用)。
+ * 开启:先落盘,再检查/申请管理员权限(未提权则以管理员重启当前进程);
+ * 关闭:落盘即可。若当前在线,用新模式重连当前节点。
+ */
+export async function toggleTun(): Promise<void> {
+  const turningOn = !nodesStore.get().tunMode;
+  const { status, activeNodeId } = connectionStore.get();
+  const wasOnline = status === "on";
+
+  // 开启且可能触发提权重启:先干净断开(清系统代理+杀内核),
+  // 让当前实例可安全硬退出,不留残留代理
+  if (turningOn && wasOnline) await disconnect();
+
+  await setTunMode(turningOn); // 立即落盘,保证提权重启后状态保留
+
+  if (turningOn) {
+    try {
+      await ensureTunElevation(); // 若需提权:进程在此退出,不再往下
+    } catch (e) {
+      await setTunMode(false); // 用户取消 UAC → 回退
+      logStatus(`未开启 TUN:${errText(e)}`);
+      return;
+    }
+    logStatus("TUN 模式已开启");
+  } else {
+    logStatus("TUN 模式已关闭");
+  }
+
+  // 已提权(或非 Windows / 关闭)且之前在线 → 用新模式重连当前节点
+  if (wasOnline && activeNodeId) {
+    const node = nodesStore.get().nodes.find((n) => n.id === activeNodeId);
+    if (node) await connect(node);
+  }
+}
+
 /**
  * 启动 / 切换连接:
  * 生成配置 → 拉起内核(Rust 侧自动杀旧进程)→ 设系统代理 → ONLINE。
@@ -48,13 +98,25 @@ export async function connect(node: Node): Promise<void> {
 
   try {
     const tun = nodesStore.get().tunMode;
+    // TUN 需要管理员权限:不足则发起提权重启(成功则进程退出,不再往下走)
+    if (tun) await ensureTunElevation();
+
     const config = buildSingBoxConfig(node, { tun });
     await startKernel(JSON.stringify(config, null, 2));
-    await setSystemProxy(true, PROXY_SERVER);
+
+    if (tun) {
+      // TUN 在网络层接管全局流量,不走系统代理;清掉可能残留的系统代理
+      await setSystemProxy(false, PROXY_SERVER).catch(() => {});
+    } else {
+      await setSystemProxy(true, PROXY_SERVER);
+    }
+
     connectionStore.set({
       status: "on",
       activeNodeId: node.id,
-      message: `系统代理已生效 · ${PROXY_SERVER} › ${node.name}`,
+      message: tun
+        ? `TUN 模式已生效 · 全局流量 › ${node.name}`
+        : `系统代理已生效 · ${PROXY_SERVER} › ${node.name}`,
     });
     measureLatency(node);
   } catch (e) {

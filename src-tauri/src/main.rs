@@ -3,6 +3,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod config;
+mod elevate;
 mod kernel;
 mod sysproxy;
 
@@ -27,6 +28,19 @@ fn stop_kernel(state: State<'_, kernel::KernelState>) -> Result<(), String> {
 #[tauri::command]
 fn set_system_proxy(enable: bool, server: String) -> Result<(), String> {
     sysproxy::set(enable, &server)
+}
+
+/// 当前进程是否具管理员权限(TUN 模式前置检查)
+#[tauri::command]
+fn is_elevated() -> bool {
+    elevate::is_elevated()
+}
+
+/// 以管理员身份重启自身(开启 TUN 时按需调用)。成功后当前实例即退出。
+/// 前端须先干净断开连接,避免残留系统代理/内核。
+#[tauri::command]
+fn relaunch_as_admin() -> Result<(), String> {
+    elevate::relaunch_as_admin()
 }
 
 /// TCP 连接测延迟,返回毫秒
@@ -138,6 +152,8 @@ fn main() {
             start_kernel,
             stop_kernel,
             set_system_proxy,
+            is_elevated,
+            relaunch_as_admin,
             tcp_ping,
             fetch_subscription,
             load_state,

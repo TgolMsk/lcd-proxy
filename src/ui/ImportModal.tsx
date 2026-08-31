@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { parseUriList } from "../parser";
+import { parseSubscription } from "../api/subscription";
 import { addNodes } from "../store/nodes";
 import { logStatus } from "../store/connection";
 
@@ -8,7 +8,7 @@ export function ImportModal({ onClose }: { onClose: () => void }) {
   const [text, setText] = useState("");
 
   function doImport() {
-    const { nodes, errors } = parseUriList(text);
+    const { nodes, errors } = parseSubscription(text);
     if (!nodes.length) {
       logStatus(
         errors.length

@@ -36,24 +36,36 @@ export const nodesStore = createStore<NodesState>({
 
 export const useNodes = () => useStore(nodesStore);
 
-// ---- 持久化(防抖写盘) ----
+// ---- 持久化 ----
 let saveTimer: ReturnType<typeof setTimeout> | null = null;
 
+function snapshot(): string {
+  const s = nodesStore.get();
+  const data: PersistShape = {
+    subscriptionUrl: s.subscriptionUrl,
+    nodes: s.nodes,
+    selectedId: s.selectedId,
+    scanlines: s.scanlines,
+    tunMode: s.tunMode,
+  };
+  return JSON.stringify(data, null, 2);
+}
+
+/** 防抖写盘(常规操作用) */
 function persist() {
   if (saveTimer) clearTimeout(saveTimer);
   saveTimer = setTimeout(() => {
-    const s = nodesStore.get();
-    const data: PersistShape = {
-      subscriptionUrl: s.subscriptionUrl,
-      nodes: s.nodes,
-      selectedId: s.selectedId,
-      scanlines: s.scanlines,
-      tunMode: s.tunMode,
-    };
-    saveState(JSON.stringify(data, null, 2)).catch((e) =>
-      console.error("保存状态失败:", e),
-    );
+    saveState(snapshot()).catch((e) => console.error("保存状态失败:", e));
   }, 400);
+}
+
+/** 立即写盘并等待完成(提权重启前必须用它,防止防抖未刷新就退出) */
+export async function saveNow(): Promise<void> {
+  if (saveTimer) {
+    clearTimeout(saveTimer);
+    saveTimer = null;
+  }
+  await saveState(snapshot());
 }
 
 /** 启动时从本地 JSON 恢复 */
@@ -114,9 +126,10 @@ export function toggleScanlines() {
   persist();
 }
 
-export function toggleTunMode() {
-  nodesStore.set((s) => ({ tunMode: !s.tunMode }));
-  persist();
+/** 设置 TUN 标志并立即落盘(供提权流程在重启前调用) */
+export async function setTunMode(on: boolean): Promise<void> {
+  nodesStore.set({ tunMode: on });
+  await saveNow();
 }
 
 export function selectedNode(): Node | null {

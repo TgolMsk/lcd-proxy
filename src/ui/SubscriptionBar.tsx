@@ -7,12 +7,12 @@ import {
   toggleScanlines,
   pingAllNodes,
 } from "../store/nodes";
-import { logStatus, errText } from "../store/connection";
+import { logStatus, errText, toggleTun } from "../store/connection";
 import { ImportModal } from "./ImportModal";
 
 /** 订阅栏:订阅地址 + 刷新 / 手动导入 / 测速 / 扫描线开关 */
 export function SubscriptionBar() {
-  const { subscriptionUrl, scanlines, nodes } = useNodes();
+  const { subscriptionUrl, scanlines, nodes, tunMode } = useNodes();
   const [refreshing, setRefreshing] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
 
@@ -68,6 +68,13 @@ export function SubscriptionBar() {
         </button>
         <button className="btn" onClick={pingAll} title="TCP 连接测延迟">
           测速
+        </button>
+        <button
+          className={`btn${tunMode ? " toggled" : ""}`}
+          onClick={() => void toggleTun()}
+          title="TUN 全局模式(需管理员权限)"
+        >
+          TUN
         </button>
         <button
           className={`btn${scanlines ? " toggled" : ""}`}

@@ -32,14 +32,19 @@ export function buildSingBoxConfig(node: Node, opts: BuildOptions = {}): object 
   };
 
   if (opts.tun) {
+    // TUN 模式:创建虚拟网卡接管全局流量(Windows 需管理员权限 + wintun 驱动)。
+    // 保留 mixed 入站,方便同时用本地端口;tun 放在最前作为主入站。
     inbounds.unshift({
       type: "tun",
       tag: "tun-in",
-      address: ["172.19.0.1/30"],
-      auto_route: true,
-      strict_route: false,
+      address: ["172.19.0.1/30", "fdfe:dcba:9876::1/126"],
+      mtu: 9000,
+      auto_route: true, // 自动接管系统路由
+      strict_route: true, // 防流量泄漏
+      stack: "mixed", // TCP 走 system、UDP 走 gvisor,兼容性好
     });
-    config.route = { auto_detect_interface: true };
+    // auto_detect_interface:自动出物理网卡;final:兜底走代理
+    config.route = { auto_detect_interface: true, final: "proxy" };
   }
 
   return config;
