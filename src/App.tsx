@@ -1,10 +1,13 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
+import { getVersion } from "@tauri-apps/api/app";
 import { StatusHeader } from "./ui/StatusHeader";
 import { SubscriptionBar } from "./ui/SubscriptionBar";
 import { NodeList } from "./ui/NodeList";
 import { ControlBar } from "./ui/ControlBar";
 import { StatusLine } from "./ui/StatusLine";
+import { UpdateBanner } from "./ui/UpdateBanner";
+import { checkUpdate } from "./store/update";
 import {
   useNodes,
   restoreNodes,
@@ -24,6 +27,7 @@ import { fetchSubscription } from "./api/subscription";
 
 export default function App() {
   const { scanlines } = useNodes();
+  const [version, setVersion] = useState("");
 
   useEffect(() => {
     let disposed = false;
@@ -31,6 +35,12 @@ export default function App() {
 
     (async () => {
       await initConnectionEvents();
+
+      // 显示当前版本 + 启动时静默检查更新(失败/无更新都不打扰)
+      getVersion()
+        .then((v) => !disposed && setVersion(v))
+        .catch(() => {});
+      checkUpdate(true);
 
       // 启动:恢复本地状态 → 若有订阅链接,后台异步刷新(失败不影响旧列表)
       await restoreNodes();
@@ -77,8 +87,15 @@ export default function App() {
     <div className="device">
       <div className="bezel-label">
         <span className="brand">◈ LCD-PROXY</span>
-        <span>MODEL&nbsp;VX-01 · MONO&nbsp;GREEN</span>
+        <span
+          className="model"
+          onClick={() => checkUpdate(false)}
+          title="点击检查更新"
+        >
+          {version ? `v${version}` : "VX-01"} · 检查更新
+        </span>
       </div>
+      <UpdateBanner />
       <div className={`screen${scanlines ? " scan" : ""}`}>
         <StatusHeader />
         <SubscriptionBar />

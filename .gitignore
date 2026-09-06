@@ -4,3 +4,7 @@ src-tauri/target
 src-tauri/gen/schemas
 .DS_Store
 *.log
+
+# 更新签名私钥,绝不入库
+*.key
+*.key.pub

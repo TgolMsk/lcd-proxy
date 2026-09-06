@@ -3,5 +3,9 @@
   "identifier": "default",
   "description": "主窗口默认能力(自定义命令 + 事件)",
   "windows": ["main"],
-  "permissions": ["core:default"]
+  "permissions": [
+    "core:default",
+    "updater:default",
+    "process:default"
+  ]
 }

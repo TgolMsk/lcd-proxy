@@ -45,6 +45,28 @@ npm run tauri dev # 起开发窗口(UI、解析、订阅逻辑均可在 Mac 上�
 
 本机(Windows)构建:`npm run tauri build`,产物在 `src-tauri/target/release/bundle/`。
 
+## 应用自更新(基于 GitHub Release)
+
+用 Tauri 官方 updater 插件实现:
+
+- 启动时**静默检查**更新;也可点右上角「vX.Y.Z · 检查更新」手动查
+- 有新版时顶部弹横幅 →「立即更新」→ 应用内下载(带进度)→ 安装 → 自动重启
+- 更新源:`plugins.updater.endpoints` 指向 `releases/latest/download/latest.json`;
+  产物由 CI 用**签名私钥**签名,客户端用内置**公钥**校验,防篡改
+
+### ⚠️ 自更新只认「已发布」的 Release
+
+`releases/latest` **不包含草稿(draft)**。CI 默认生成的是草稿 Release,所以
+**必须在 GitHub 上点 Publish 把该版本正式发布**,旧版本客户端才能检测并更新到它。
+(草稿阶段你自己下载安装包测试不受影响。)
+
+### 维护者:签名密钥
+
+- 密钥对已生成:**公钥**写在 [tauri.conf.json](src-tauri/tauri.conf.json) 的 `plugins.updater.pubkey`;
+  **私钥**在仓库外 `~/.lcd-proxy/updater.key`(已 `.gitignore`,**务必自行备份**,丢了就没法再发能被老客户端校验的更新)
+- CI 签名:私钥存为仓库 Secret `TAURI_SIGNING_PRIVATE_KEY`,空密码在 workflow 里以空 env 传入
+- 想换密钥:`npm run tauri signer generate -- -w <路径>`,更新公钥与 Secret 即可(但换key后老客户端无法自更新到新key签名的版本,需手动升级一次)
+
 ## ⚠️ SSR 支持情况(必读)
 
 **sing-box 官方版从 1.6.0 起已彻底移除 ShadowsocksR 出站**(早期版本也需要编译时带
