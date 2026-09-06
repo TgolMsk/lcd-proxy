@@ -33,8 +33,20 @@ describe("buildSingBoxConfig", () => {
       password: "pw",
     };
     const cfg = buildSingBoxConfig(node, { tun: true }) as any;
-    expect(cfg.inbounds.some((i: any) => i.type === "tun")).toBe(true);
-    expect(cfg.route).toMatchObject({ auto_detect_interface: true });
+    const tun = cfg.inbounds.find((i: any) => i.type === "tun");
+    expect(tun).toBeTruthy();
+    expect(tun.strict_route).toBe(false); // 关键:避免 Windows 整机断网
+    // 必须内置 DNS,否则 TUN 下域名全部解析失败 = 无网络
+    expect(cfg.dns.servers.length).toBeGreaterThanOrEqual(2);
+    expect(cfg.route).toMatchObject({ auto_detect_interface: true, final: "proxy" });
+    // 必须劫持 DNS + 私网直连
+    expect(cfg.route.rules).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ action: "hijack-dns" }),
+        expect.objectContaining({ ip_is_private: true, outbound: "direct" }),
+      ]),
+    );
+    expect(cfg.route.default_domain_resolver).toBeTruthy();
   });
 });
 

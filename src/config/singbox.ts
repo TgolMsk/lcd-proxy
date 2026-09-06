@@ -40,11 +40,34 @@ export function buildSingBoxConfig(node: Node, opts: BuildOptions = {}): object 
       address: ["172.19.0.1/30", "fdfe:dcba:9876::1/126"],
       mtu: 9000,
       auto_route: true, // 自动接管系统路由
-      strict_route: true, // 防流量泄漏
+      strict_route: false, // Windows 上 true 过于激进、易导致整机断网,关掉更稳
       stack: "mixed", // TCP 走 system、UDP 走 gvisor,兼容性好
     });
-    // auto_detect_interface:自动出物理网卡;final:兜底走代理
-    config.route = { auto_detect_interface: true, final: "proxy" };
+
+    // ⚠️ 关键:TUN 会把所有流量(含 DNS 查询)吞进虚拟网卡。若不显式处理 DNS,
+    // 域名将全部解析失败,表现为「整机无网络」。这里内置 DNS + 劫持所有 DNS 查询。
+    config.dns = {
+      servers: [
+        // 远端 DNS 走代理(DoH 走 TCP/443,穿透代理最可靠)
+        { type: "https", tag: "dns-remote", server: "1.1.1.1", detour: "proxy" },
+        // 直连 DNS:解析节点服务器域名、局域网
+        { type: "udp", tag: "dns-direct", server: "223.5.5.5", detour: "direct" },
+      ],
+      final: "dns-remote",
+      strategy: "prefer_ipv4",
+    };
+
+    config.route = {
+      rules: [
+        { action: "sniff" }, // 探测连接的真实域名
+        { protocol: "dns", action: "hijack-dns" }, // 劫持所有 DNS 查询到内置解析器
+        { ip_is_private: true, action: "route", outbound: "direct" }, // 局域网/内网直连
+      ],
+      // 节点服务器域名用直连 DNS 解析,避免「解析服务器要先连服务器」的死循环
+      default_domain_resolver: { server: "dns-direct" },
+      auto_detect_interface: true, // 自动出物理网卡
+      final: "proxy", // 其余流量兜底走代理
+    };
   }
 
   return config;
