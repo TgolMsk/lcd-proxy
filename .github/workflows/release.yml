@@ -92,6 +92,6 @@ jobs:
           tagName: ${{ github.ref_name }}
           releaseName: 'LCD Proxy ${{ github.ref_name }}'
           releaseBody: '下载下方的 .msi 或 .exe 安装包安装使用。'
-          releaseDraft: true     # 先生成草稿,人工确认后再发布
+          releaseDraft: false    # 自动公开发布(否则应用「检查更新」检测不到草稿)
           prerelease: false
           args: --target x86_64-pc-windows-msvc
