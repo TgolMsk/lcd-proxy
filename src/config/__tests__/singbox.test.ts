@@ -47,6 +47,8 @@ describe("buildSingBoxConfig", () => {
       ]),
     );
     expect(cfg.route.default_domain_resolver).toBeTruthy();
+    // 不能有 DNS 服务器 detour 到空 direct 出站(sing-box 1.12 运行时会 FATAL)
+    expect(cfg.dns.servers.every((s: any) => s.detour !== "direct")).toBe(true);
   });
 });
 

@@ -50,8 +50,9 @@ export function buildSingBoxConfig(node: Node, opts: BuildOptions = {}): object 
       servers: [
         // 远端 DNS 走代理(DoH 走 TCP/443,穿透代理最可靠)
         { type: "https", tag: "dns-remote", server: "1.1.1.1", detour: "proxy" },
-        // 直连 DNS:解析节点服务器域名、局域网
-        { type: "udp", tag: "dns-direct", server: "223.5.5.5", detour: "direct" },
+        // 直连 DNS:解析节点服务器域名、局域网。不写 detour(sing-box 1.12 里
+        // detour 到空 direct 出站会报错;不写即走直连,正是所需)
+        { type: "udp", tag: "dns-direct", server: "223.5.5.5" },
       ],
       final: "dns-remote",
       strategy: "prefer_ipv4",
