@@ -2121,7 +2121,7 @@ dependencies = [
 
 [[package]]
 name = "lcd-proxy"
-version = "0.1.7"
+version = "0.1.8"
 dependencies = [
  "reqwest 0.12.28",
  "serde",

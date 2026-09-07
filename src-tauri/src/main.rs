@@ -86,6 +86,17 @@ async fn fetch_subscription(url: String) -> Result<String, String> {
     resp.text().await.map_err(|e| format!("读取响应失败:{e}"))
 }
 
+/// 更新前清理:停内核 + 杀残留 + 清系统代理。
+/// 否则安装包无法覆盖正在运行(被占用)的 sing-box.exe,报 "Error opening file for writing"。
+#[tauri::command]
+fn prepare_update(app: AppHandle) -> Result<(), String> {
+    let state = app.state::<kernel::KernelState>();
+    let _ = kernel::stop(&state);
+    kernel::kill_stray_kernels();
+    let _ = sysproxy::set(false, "");
+    Ok(())
+}
+
 /// 打开应用数据目录(内含 config.json / kernel.log),便于排查
 #[tauri::command]
 fn reveal_config_dir(app: AppHandle) -> Result<(), String> {
@@ -175,6 +186,7 @@ fn main() {
             is_elevated,
             relaunch_as_admin,
             reveal_config_dir,
+            prepare_update,
             tcp_ping,
             fetch_subscription,
             load_state,

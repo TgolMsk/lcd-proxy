@@ -1,6 +1,7 @@
 import { Update } from "@tauri-apps/plugin-updater";
 import { createStore, useStore } from "./createStore";
 import { checkForUpdate, downloadAndInstall } from "../api/updater";
+import { prepareUpdate } from "../api/backend";
 
 export type UpdateStatus =
   | "idle" // 未检查 / 已忽略
@@ -66,8 +67,11 @@ export async function checkUpdate(silent = false): Promise<void> {
 /** 下载并安装挂起的更新,完成后自动重启 */
 export async function installUpdate(): Promise<void> {
   if (!pending) return;
-  store.set({ status: "downloading", progress: 0, message: "开始下载更新 …" });
+  store.set({ status: "downloading", progress: 0, message: "正在停止内核,准备更新 …" });
   try {
+    // 关键:先停内核+清残留,否则安装包无法覆盖正在运行的 sing-box.exe
+    await prepareUpdate().catch(() => {});
+    store.set({ message: "开始下载更新 …" });
     await downloadAndInstall(pending, (downloaded, total) => {
       const pct = total ? Math.min(100, Math.round((downloaded / total) * 100)) : 0;
       store.set({

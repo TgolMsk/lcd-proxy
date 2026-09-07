@@ -29,6 +29,11 @@ export function revealConfigDir(): Promise<void> {
   return invoke("reveal_config_dir");
 }
 
+/** 更新前清理:停内核+杀残留+清代理,让安装包能覆盖 sing-box.exe */
+export function prepareUpdate(): Promise<void> {
+  return invoke("prepare_update");
+}
+
 /** TCP 连接测延迟,返回毫秒;超时/拒绝会 reject */
 export function tcpPing(host: string, port: number, timeoutMs = 3000): Promise<number> {
   return invoke<number>("tcp_ping", { host, port, timeoutMs });
