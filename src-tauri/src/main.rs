@@ -37,9 +37,14 @@ fn is_elevated() -> bool {
 }
 
 /// 以管理员身份重启自身(开启 TUN 时按需调用)。成功后当前实例即退出。
-/// 前端须先干净断开连接,避免残留系统代理/内核。
 #[tauri::command]
-fn relaunch_as_admin() -> Result<(), String> {
+fn relaunch_as_admin(app: AppHandle) -> Result<(), String> {
+    // 提权是硬退出(process::exit),会绕过 Tauri 退出清理。
+    // 这里先杀内核 + 清残留 + 清系统代理,避免孤儿内核占住 10808 端口。
+    let state = app.state::<kernel::KernelState>();
+    let _ = kernel::stop(&state);
+    kernel::kill_stray_kernels();
+    let _ = sysproxy::set(false, "");
     elevate::relaunch_as_admin()
 }
 
@@ -176,6 +181,8 @@ fn main() {
             save_state,
         ])
         .setup(|app| {
+            // 清掉上次异常退出/提权重启残留的孤儿内核,避免占用端口
+            kernel::kill_stray_kernels();
             setup_tray(app.handle())?;
             Ok(())
         })

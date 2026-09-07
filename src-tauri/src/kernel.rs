@@ -74,12 +74,16 @@ pub async fn start(app: AppHandle, config_json: String) -> Result<(), String> {
         tokio::time::sleep(Duration::from_millis(300)).await;
     }
 
-    // 2. 端口占用检查:此刻还有人监听说明是别的程序占着
+    // 2. 端口占用检查。若被占,先清掉可能残留的孤儿内核(上次崩溃/提权重启遗留)再重试。
     let port = config::extract_port(&config_json);
     if port_in_use(port).await {
-        return Err(format!(
-            "端口 {port} 已被其他程序占用,请关闭占用端口的程序后重试"
-        ));
+        kill_stray_kernels();
+        tokio::time::sleep(Duration::from_millis(600)).await;
+        if port_in_use(port).await {
+            return Err(format!(
+                "端口 {port} 已被占用。若未运行其他代理程序,可能是残留内核未清除——请从托盘退出应用再重新打开;仍不行请重启电脑"
+            ));
+        }
     }
 
     // 3. 校验并写入配置
@@ -177,6 +181,28 @@ pub async fn start(app: AppHandle, config_json: String) -> Result<(), String> {
             ));
         }
         tokio::time::sleep(Duration::from_millis(150)).await;
+    }
+}
+
+/// 杀掉可能残留的孤儿内核进程(上次崩溃 / 提权硬重启未清理)。按进程名匹配。
+/// sidecar 的运行文件名可能带或不带目标三元组后缀,两种都清。
+pub fn kill_stray_kernels() {
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000; // 不弹黑窗
+        for name in ["sing-box.exe", "sing-box-x86_64-pc-windows-msvc.exe"] {
+            let _ = std::process::Command::new("taskkill")
+                .args(["/F", "/IM", name])
+                .creation_flags(CREATE_NO_WINDOW)
+                .output();
+        }
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = std::process::Command::new("pkill")
+            .args(["-f", "sing-box"])
+            .output();
     }
 }
 
