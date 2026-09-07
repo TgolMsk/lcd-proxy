@@ -24,6 +24,11 @@ export function relaunchAsAdmin(): Promise<void> {
   return invoke("relaunch_as_admin");
 }
 
+/** 打开应用数据目录(config.json / kernel.log 所在),便于排查 */
+export function revealConfigDir(): Promise<void> {
+  return invoke("reveal_config_dir");
+}
+
 /** TCP 连接测延迟,返回毫秒;超时/拒绝会 reject */
 export function tcpPing(host: string, port: number, timeoutMs = 3000): Promise<number> {
   return invoke<number>("tcp_ping", { host, port, timeoutMs });

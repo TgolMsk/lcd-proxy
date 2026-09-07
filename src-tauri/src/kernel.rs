@@ -100,9 +100,15 @@ pub async fn start(app: AppHandle, config_json: String) -> Result<(), String> {
     *state.child.lock().unwrap() = Some(child);
     let spawn_gen = state.generation.load(Ordering::SeqCst);
 
+    // 内核完整日志落盘,便于排查(尤其 TUN 启动失败)
+    let log_path = config::data_dir(&app).ok().map(|d| d.join("kernel.log"));
+
     // 5. 后台任务:转发内核输出;监控意外退出 → 清系统代理 + 通知前端
     let watch_app = app.clone();
     tauri::async_runtime::spawn(async move {
+        use std::io::Write;
+        // 每次运行覆盖写,只保留本次日志
+        let mut log_file = log_path.as_ref().and_then(|p| std::fs::File::create(p).ok());
         while let Some(event) = rx.recv().await {
             let st = watch_app.state::<KernelState>();
             match event {
@@ -111,6 +117,9 @@ pub async fn start(app: AppHandle, config_json: String) -> Result<(), String> {
                         let line = line.trim();
                         if line.is_empty() {
                             continue;
+                        }
+                        if let Some(f) = log_file.as_mut() {
+                            let _ = writeln!(f, "{line}");
                         }
                         st.push_log(line.to_string());
                         let _ = watch_app.emit("kernel-log", line);
@@ -129,7 +138,7 @@ pub async fn start(app: AppHandle, config_json: String) -> Result<(), String> {
                             "kernel-exit",
                             serde_json::json!({
                                 "code": payload.code,
-                                "lastLog": st.tail_logs(3),
+                                "lastLog": st.tail_logs(8),
                             }),
                         );
                     }
@@ -144,7 +153,7 @@ pub async fn start(app: AppHandle, config_json: String) -> Result<(), String> {
     let deadline = tokio::time::Instant::now() + Duration::from_millis(READY_TIMEOUT_MS);
     loop {
         if !state.is_running() {
-            let tail = state.tail_logs(3);
+            let tail = state.tail_logs(8);
             return Err(if tail.is_empty() {
                 "内核启动后立即退出(无输出)。请检查节点参数或内核版本".into()
             } else {
@@ -156,7 +165,7 @@ pub async fn start(app: AppHandle, config_json: String) -> Result<(), String> {
         }
         if tokio::time::Instant::now() >= deadline {
             let _ = stop(&state);
-            let tail = state.tail_logs(3);
+            let tail = state.tail_logs(8);
             return Err(format!(
                 "内核启动超时({}s 内未监听端口 {port}){}",
                 READY_TIMEOUT_MS / 1000,

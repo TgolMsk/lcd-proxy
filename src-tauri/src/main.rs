@@ -81,6 +81,19 @@ async fn fetch_subscription(url: String) -> Result<String, String> {
     resp.text().await.map_err(|e| format!("读取响应失败:{e}"))
 }
 
+/// 打开应用数据目录(内含 config.json / kernel.log),便于排查
+#[tauri::command]
+fn reveal_config_dir(app: AppHandle) -> Result<(), String> {
+    let dir = config::data_dir(&app)?;
+    #[cfg(target_os = "windows")]
+    let r = std::process::Command::new("explorer").arg(&dir).spawn();
+    #[cfg(target_os = "macos")]
+    let r = std::process::Command::new("open").arg(&dir).spawn();
+    #[cfg(all(unix, not(target_os = "macos")))]
+    let r = std::process::Command::new("xdg-open").arg(&dir).spawn();
+    r.map(|_| ()).map_err(|e| format!("打开目录失败:{e}"))
+}
+
 #[tauri::command]
 fn load_state(app: AppHandle) -> Result<String, String> {
     config::load_state_file(&app)
@@ -156,6 +169,7 @@ fn main() {
             set_system_proxy,
             is_elevated,
             relaunch_as_admin,
+            reveal_config_dir,
             tcp_ping,
             fetch_subscription,
             load_state,
