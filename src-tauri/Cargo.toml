@@ -1,6 +1,6 @@
 [package]
 name = "lcd-proxy"
-version = "0.1.6"
+version = "0.1.7"
 description = "LCD 复古风格订阅式代理客户端(sing-box 内核)"
 edition = "2021"
 rust-version = "1.77"

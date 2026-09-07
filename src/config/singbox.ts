@@ -63,6 +63,9 @@ export function buildSingBoxConfig(node: Node, opts: BuildOptions = {}): object 
         { action: "sniff" }, // 探测连接的真实域名
         { protocol: "dns", action: "hijack-dns" }, // 劫持所有 DNS 查询到内置解析器
         { ip_is_private: true, action: "route", outbound: "direct" }, // 局域网/内网直连
+        // 拦掉 QUIC(UDP 443):YouTube/Google 走 QUIC,节点若不支持 UDP 转发会打不开;
+        // reject 后浏览器自动回退 TCP/HTTP2,通过代理稳定访问
+        { network: "udp", port: 443, action: "reject" },
       ],
       // 节点服务器域名用直连 DNS 解析,避免「解析服务器要先连服务器」的死循环
       default_domain_resolver: { server: "dns-direct" },
