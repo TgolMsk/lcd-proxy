@@ -13,7 +13,7 @@ export function ControlBar() {
   const online = conn.status === "on";
   const switching = online && selectedId !== null && selectedId !== conn.activeNodeId;
 
-  const startLabel = busy ? "▶ 连接中…" : switching ? "▶ 切换" : "▶ 启动";
+  const startLabel = busy ? "连接中…" : switching ? "切换节点" : "启动";
   const startDisabled = busy || selectedId === null || (online && !switching);
 
   async function onStart() {
@@ -35,7 +35,7 @@ export function ControlBar() {
         onClick={disconnect}
         disabled={busy || conn.status === "off" || conn.status === "fault"}
       >
-        ■ 停止
+        停止
       </button>
     </div>
   );

@@ -5,11 +5,13 @@ import { loadState, saveState, tcpPing } from "../api/backend";
 /** ping 结果:数字=毫秒;"timeout"=超时/失败;undefined=未测 */
 export type PingResult = number | "timeout" | undefined;
 
+export type Theme = "dark" | "light";
+
 export interface NodesState {
   subscriptionUrl: string;
   nodes: Node[];
   selectedId: string | null;
-  scanlines: boolean; // 扫描线开关
+  theme: Theme; // 深色(默认)/ 浅色
   tunMode: boolean; // TUN 模式(预留)
   pings: Record<string, PingResult>; // 不持久化
   loaded: boolean;
@@ -20,7 +22,7 @@ interface PersistShape {
   subscriptionUrl: string;
   nodes: Node[];
   selectedId: string | null;
-  scanlines: boolean;
+  theme: Theme;
   tunMode: boolean;
 }
 
@@ -28,11 +30,16 @@ export const nodesStore = createStore<NodesState>({
   subscriptionUrl: "",
   nodes: [],
   selectedId: null,
-  scanlines: true,
+  theme: "dark",
   tunMode: false,
   pings: {},
   loaded: false,
 });
+
+/** 把主题写到根元素,CSS 变量随之切换 */
+export function applyTheme(theme: Theme) {
+  document.documentElement.dataset.theme = theme;
+}
 
 export const useNodes = () => useStore(nodesStore);
 
@@ -45,7 +52,7 @@ function snapshot(): string {
     subscriptionUrl: s.subscriptionUrl,
     nodes: s.nodes,
     selectedId: s.selectedId,
-    scanlines: s.scanlines,
+    theme: s.theme,
     tunMode: s.tunMode,
   };
   return JSON.stringify(data, null, 2);
@@ -78,10 +85,11 @@ export async function restoreNodes(): Promise<void> {
         subscriptionUrl: data.subscriptionUrl ?? "",
         nodes: Array.isArray(data.nodes) ? data.nodes : [],
         selectedId: data.selectedId ?? null,
-        scanlines: data.scanlines ?? true,
+        theme: data.theme === "light" ? "light" : "dark",
         tunMode: data.tunMode ?? false,
       });
     }
+    applyTheme(nodesStore.get().theme);
   } catch (e) {
     console.error("读取本地状态失败:", e);
   } finally {
@@ -121,8 +129,10 @@ export function selectNode(id: string) {
   persist();
 }
 
-export function toggleScanlines() {
-  nodesStore.set((s) => ({ scanlines: !s.scanlines }));
+export function toggleTheme() {
+  const next: Theme = nodesStore.get().theme === "dark" ? "light" : "dark";
+  nodesStore.set({ theme: next });
+  applyTheme(next);
   persist();
 }
 

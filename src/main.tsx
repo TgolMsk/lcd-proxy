@@ -2,11 +2,8 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App";
 
-// 字体本地打包:清晰等宽正文 + 七段数码管数字(离线可用,不走 CDN)
-import "@fontsource/jetbrains-mono/400.css";
-import "@fontsource/jetbrains-mono/500.css";
-import "@fontsource/jetbrains-mono/700.css";
-import "dseg/css/dseg.css";
+// 几何无衬线字体(Inter 可变字重),离线本地打包
+import "@fontsource-variable/inter";
 
 import "./ui/theme.css";
 

@@ -27,9 +27,8 @@ export function NodeList() {
     return (
       <div className="list">
         <div className="empty">
-          NO&nbsp;DATA
-          <br />
-          粘贴订阅链接后点「刷新」,或点「导入」粘贴分享链接
+          <b>暂无节点</b>
+          粘贴订阅链接点「刷新」,或点「导入」粘贴分享链接
         </div>
       </div>
     );
@@ -48,7 +47,7 @@ export function NodeList() {
             onClick={() => selectNode(n.id)}
             title={`${n.server}:${n.port}`}
           >
-            <span className="mark">{sel ? "▸" : "·"}</span>
+            <span className="mark" />
             <span className="name">{n.name}</span>
             <span className="proto">{PROTO_SHORT[n.protocol]}</span>
             <span className={`ping ${ping.cls}`}>{ping.text}</span>

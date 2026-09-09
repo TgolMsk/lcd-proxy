@@ -4,7 +4,6 @@ import {
   useNodes,
   setSubscriptionUrl,
   replaceNodes,
-  toggleScanlines,
   pingAllNodes,
 } from "../store/nodes";
 import { logStatus, errText, toggleTun } from "../store/connection";
@@ -12,7 +11,7 @@ import { ImportModal } from "./ImportModal";
 
 /** 订阅栏:订阅地址 + 刷新 / 手动导入 / 测速 / 扫描线开关 */
 export function SubscriptionBar() {
-  const { subscriptionUrl, scanlines, nodes, tunMode } = useNodes();
+  const { subscriptionUrl, nodes, tunMode } = useNodes();
   const [refreshing, setRefreshing] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
 
@@ -75,13 +74,6 @@ export function SubscriptionBar() {
           title="TUN 全局模式(需管理员权限)"
         >
           TUN
-        </button>
-        <button
-          className={`btn${scanlines ? " toggled" : ""}`}
-          onClick={toggleScanlines}
-          title="扫描线开关"
-        >
-          SCAN
         </button>
       </div>
       {importOpen && <ImportModal onClose={() => setImportOpen(false)} />}

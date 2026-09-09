@@ -14,6 +14,7 @@ import {
   replaceNodes,
   selectedNode,
   nodesStore,
+  toggleTheme,
 } from "./store/nodes";
 import {
   initConnectionEvents,
@@ -26,7 +27,7 @@ import {
 import { fetchSubscription } from "./api/subscription";
 
 export default function App() {
-  const { scanlines } = useNodes();
+  const { theme } = useNodes();
   const [version, setVersion] = useState("");
 
   useEffect(() => {
@@ -84,25 +85,35 @@ export default function App() {
   }, []);
 
   return (
-    <div className="device">
-      <div className="bezel-label">
-        <span className="brand">◈ LCD-PROXY</span>
-        <span
-          className="model"
-          onClick={() => checkUpdate(false)}
-          title="点击检查更新"
-        >
-          {version ? `v${version}` : "VX-01"} · 检查更新
-        </span>
+    <div className="app">
+      <div className="topbar">
+        <div className="brand">
+          <span className="logo" />
+          LCD PROXY
+        </div>
+        <div className="topbar-right">
+          <button
+            className="theme-toggle"
+            onClick={toggleTheme}
+            title="切换深色 / 浅色"
+          >
+            {theme === "dark" ? "☀" : "☾"}
+          </button>
+          <span
+            className="version"
+            onClick={() => checkUpdate(false)}
+            title="点击检查更新"
+          >
+            {version ? `v${version}` : ""} · 检查更新
+          </span>
+        </div>
       </div>
       <UpdateBanner />
-      <div className={`screen${scanlines ? " scan" : ""}`}>
-        <StatusHeader />
-        <SubscriptionBar />
-        <NodeList />
-        <ControlBar />
-        <StatusLine />
-      </div>
+      <StatusHeader />
+      <SubscriptionBar />
+      <NodeList />
+      <ControlBar />
+      <StatusLine />
     </div>
   );
 }
