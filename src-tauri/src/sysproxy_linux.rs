@@ -23,7 +23,23 @@ pub struct DesktopProxy {
 }
 
 fn gsettings(args: &[&str]) -> Result<String, String> {
-    let output = Command::new("gsettings")
+    // This is a host utility. AppImage's bundled GLib must not be used to load
+    // the host dconf module (the two versions can have incompatible symbols).
+    let mut command = Command::new("/usr/bin/gsettings");
+    for variable in [
+        "LD_LIBRARY_PATH",
+        "LD_PRELOAD",
+        "GIO_MODULE_DIR",
+        "GIO_EXTRA_MODULES",
+        "GSETTINGS_SCHEMA_DIR",
+        "GTK_PATH",
+        "GTK_EXE_PREFIX",
+        "GTK_DATA_PREFIX",
+        "GDK_PIXBUF_MODULE_FILE",
+    ] {
+        command.env_remove(variable);
+    }
+    let output = command
         .args(args)
         .output()
         .map_err(|e| format!("无法运行 gsettings:{e}。请安装 libglib2.0-bin"))?;
