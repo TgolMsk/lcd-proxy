@@ -1,15 +1,7 @@
-name: Build Linux (Mint / Ubuntu)
+name: Build Linux (Manual)
 
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
-    paths:
-      - 'src/**'
-      - 'src-tauri/**'
-      - 'scripts/**'
-      - 'package*.json'
-      - '.github/workflows/linux.yml'
 
 permissions:
   contents: read

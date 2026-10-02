@@ -25,17 +25,17 @@
 
 提供 **x86_64 `.deb` 安装包与 `.AppImage` 便携包**,内置 sing-box 1.12.4。
 
-[下载 Linux 安装构件](https://github.com/TgolMsk/lcd-proxy/releases/tag/linux-v0.1.9)。
+[下载 Linux 安装构件](https://github.com/TgolMsk/lcd-proxy/releases/tag/v1.0.0)。
 也可在 Linux 终端运行构件安装器,直接下载、校验 SHA-256 并安装:
 
 ```sh
-curl -fL https://github.com/TgolMsk/lcd-proxy/releases/download/linux-v0.1.9/install-linux.sh -o install-linux.sh
+curl -fL https://github.com/TgolMsk/lcd-proxy/releases/latest/download/install-linux.sh -o install-linux.sh
 bash install-linux.sh
 ```
 
 ```sh
 # 推荐安装方式:在安装包所在目录运行
-sudo apt install "./LCD Proxy_0.1.9_amd64.deb"
+sudo apt install ./lcd-proxy_1.0.0_amd64.deb
 # 在应用菜单打开 LCD Proxy,导入订阅/节点后点击「启动」
 ```
 
@@ -62,15 +62,18 @@ npm run tauri dev # 起开发窗口(UI、解析、订阅逻辑均可在 Mac 上�
 > `src-tauri/binaries/sing-box-aarch64-apple-darwin`(详见 [binaries/README.md](src-tauri/binaries/README.md))。
 > 系统代理(注册表)、托盘、WebView2 等 **Windows 集成必须在 Windows 上真机测试**。
 
-## 构建 Windows 安装包(CI,推荐)
+## 统一版本与 Windows / Linux 发布
 
-1. 推代码到 GitHub 仓库
-2. 打 tag:`git tag v0.1.0 && git push origin v0.1.0`
-3. Actions 在 Windows runner 上自动:**下载 sing-box 内核** → 测试 → 构建 → 挂到 Releases 草稿
+从 **1.0.0** 开始,Windows 与 Linux 使用同一版本号、同一个 `vX.Y.Z` 标签与 Release。
 
-内核版本改 [.github/workflows/release.yml](.github/workflows/release.yml) 顶部的 `SING_BOX_VERSION`。
-不想让 CI 下载,也可以把 `sing-box-x86_64-pc-windows-msvc.exe` 直接提交进
-`src-tauri/binaries/`(建议 Git LFS),CI 检测到会跳过下载。
+1. 同步 `package.json`、`package-lock.json`、Tauri 配置、Cargo 清单/锁文件和 Linux 安装器版本。
+2. 运行 `node scripts/check-version.mjs v1.0.0`,提交并推送代码。
+3. 推送标签:`git tag v1.0.0 && git push origin v1.0.0`。
+4. `Release (Windows + Linux)` 分别构建 Windows x64 `.exe`/`.msi` 与 Linux x86_64 `.deb`/`.AppImage`。
+5. 两个平台成功后验证 Windows 更新签名,生成完整 `SHA256SUMS`,将安装器、更新清单和各平台安装包统一公开发布。
+
+构建期间 Release 为草稿。任一平台或签名验证失败均不公开该版本。
+内核版本见 `scripts/sing-box-version`,各平台官方内核 SHA-256 见 `scripts/sing-box-checksums.sha256`。
 
 本机(Windows)构建:`npm run tauri build`,产物在 `src-tauri/target/release/bundle/`。
 
@@ -83,11 +86,11 @@ npm run tauri dev # 起开发窗口(UI、解析、订阅逻辑均可在 Mac 上�
 - 更新源:`plugins.updater.endpoints` 指向 `releases/latest/download/latest.json`;
   产物由 CI 用**签名私钥**签名,客户端用内置**公钥**校验,防篡改
 
-### ⚠️ 自更新只认「已发布」的 Release
+### 自更新与安装入口
 
-`releases/latest` **不包含草稿(draft)**。CI 默认生成的是草稿 Release,所以
-**必须在 GitHub 上点 Publish 把该版本正式发布**,旧版本客户端才能检测并更新到它。
-(草稿阶段你自己下载安装包测试不受影响。)
+Windows 自更新使用统一 Release 中的签名包与 `latest.json`。
+`releases/latest` 不包含构建中的草稿;统一流程在两个平台验证完成后自动发布。
+Linux 通过统一 Release 中的安装器或安装包更新,不使用 Windows 更新清单安装。
 
 ### 维护者:签名密钥
 

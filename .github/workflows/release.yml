@@ -1,97 +1,192 @@
-# ============================================================
-#  自动构建 Windows 安装包 (.msi / .nsis.exe)
-#
-#  用法:
-#    1. 打一个以 v 开头的 tag 并推送,例如:
-#         git tag v0.1.0
-#         git push origin v0.1.0
-#    2. Actions 自动在 Windows runner 上构建,产物挂到
-#       GitHub Releases(默认是草稿,确认后点发布即可)
-#    也可在 Actions 页面手动点 "Run workflow" 触发(workflow_dispatch)
-#
-#  sing-box 内核:构建时自动从官方 GitHub Releases 下载(版本见下方
-#  SING_BOX_VERSION)。若仓库里已提交 src-tauri/binaries/
-#  sing-box-x86_64-pc-windows-msvc.exe,则跳过下载、用提交的版本。
-#
-#  费用:公开仓库完全免费;私有仓库走每月 2000 分钟免费额度,
-#        Windows 按 2 倍计,一次构建约消耗 20~30 分钟额度。
-# ============================================================
-
-name: Release (Windows)
+name: Release (Windows + Linux)
 
 on:
   push:
-    tags:
-      - 'v*'          # 推送 v 开头的 tag 时触发
-  workflow_dispatch:  # 允许在 Actions 页面手动触发
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing version tag, for example v1.0.0'
+        required: true
+        type: string
 
 permissions:
-  contents: write     # tauri-action 需要写权限来创建 Release
+  contents: read
 
-env:
-  # sing-box 内核版本(⚠️ 官方版 ≥1.6 不含 SSR 支持,见 README)
-  SING_BOX_VERSION: '1.12.4'
+concurrency:
+  group: release-${{ inputs.tag || github.ref_name }}
+  cancel-in-progress: false
 
 jobs:
-  build-windows:
-    runs-on: windows-latest
-
+  prepare:
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
     steps:
-      - name: 检出代码
-        uses: actions/checkout@v4
-
-      - name: 下载 sing-box 内核(sidecar)
-        shell: pwsh
-        run: |
-          $dest = "src-tauri/binaries/sing-box-x86_64-pc-windows-msvc.exe"
-          if (Test-Path $dest) {
-            Write-Host "已存在提交的内核二进制,跳过下载:$dest"
-            exit 0
-          }
-          $ver = "${{ env.SING_BOX_VERSION }}"
-          $url = "https://github.com/SagerNet/sing-box/releases/download/v$ver/sing-box-$ver-windows-amd64.zip"
-          Write-Host "下载 $url"
-          Invoke-WebRequest -Uri $url -OutFile singbox.zip
-          Expand-Archive singbox.zip -DestinationPath singbox-tmp
-          New-Item -ItemType Directory -Force -Path "src-tauri/binaries" | Out-Null
-          $exe = Get-ChildItem -Recurse singbox-tmp -Filter sing-box.exe | Select-Object -First 1
-          if (-not $exe) { throw "压缩包里没找到 sing-box.exe" }
-          Copy-Item $exe.FullName $dest
-          Write-Host "内核就绪:$dest"
-
-      - name: 安装 Node
-        uses: actions/setup-node@v4
+      - uses: actions/checkout@v4
         with:
-          node-version: 20
-          cache: 'npm'
+          ref: ${{ inputs.tag || github.ref }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Validate one version for both platforms
+        id: version
+        env:
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+        run: node scripts/check-version.mjs "$RELEASE_TAG"
+      - name: Prepare draft release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          if gh release view "$RELEASE_TAG" --json isDraft > release-state.json; then
+            jq -e '.isDraft == true' release-state.json
+          else
+            gh release create "$RELEASE_TAG" --verify-tag --draft \
+              --title "LCD Proxy $RELEASE_TAG · Windows / Linux" \
+              --notes 'Windows and Linux packages are being built.'
+          fi
 
-      - name: 安装 Rust 工具链
-        uses: dtolnay/rust-toolchain@stable
+  windows:
+    needs: prepare
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.tag }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
         with:
           targets: x86_64-pc-windows-msvc
-
-      - name: 缓存 Rust 构建产物
-        uses: swatinem/rust-cache@v2
+      - uses: swatinem/rust-cache@v2
         with:
           workspaces: './src-tauri -> target'
-
-      - name: 安装前端依赖
-        run: npm ci
-
-      - name: 前端单元测试(协议解析器)
-        run: npm test
-
-      - name: 构建并发布到 Release
+      - name: Download and verify Windows core
+        shell: pwsh
+        run: |
+          $ver = (Get-Content scripts/sing-box-version -Raw).Trim()
+          $asset = "sing-box-$ver-windows-amd64.zip"
+          $line = Get-Content scripts/sing-box-checksums.sha256 | Where-Object { $_.EndsWith("  $asset") }
+          if (-not $line) { throw "Missing pinned digest for $asset" }
+          $expected = ($line -split '\s+')[0]
+          Invoke-WebRequest "https://github.com/SagerNet/sing-box/releases/download/v$ver/$asset" -OutFile sing-box.zip
+          if ((Get-FileHash sing-box.zip -Algorithm SHA256).Hash.ToLower() -ne $expected) { throw 'Core SHA-256 mismatch' }
+          Expand-Archive sing-box.zip -DestinationPath sing-box-tmp
+          $exe = Get-ChildItem -Recurse sing-box-tmp -Filter sing-box.exe | Select-Object -First 1
+          if (-not $exe) { throw 'Core executable not found' }
+          Copy-Item $exe.FullName src-tauri/binaries/sing-box-x86_64-pc-windows-msvc.exe
+          & src-tauri/binaries/sing-box-x86_64-pc-windows-msvc.exe version
+          if ($LASTEXITCODE -ne 0) { throw 'Core executable cannot run' }
+      - run: npm ci
+      - run: npm test
+      - name: Build and sign Windows installers in draft release
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # 自更新签名:私钥存在仓库 Secrets,CI 据此签名并生成 latest.json
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ''
         with:
-          tagName: ${{ github.ref_name }}
-          releaseName: 'LCD Proxy ${{ github.ref_name }}'
-          releaseBody: '下载下方的 .msi 或 .exe 安装包安装使用。'
-          releaseDraft: false    # 自动公开发布(否则应用「检查更新」检测不到草稿)
+          tagName: ${{ needs.prepare.outputs.tag }}
+          releaseName: 'LCD Proxy ${{ needs.prepare.outputs.tag }} · Windows / Linux'
+          releaseDraft: true
           prerelease: false
+          includeUpdaterJson: true
           args: --target x86_64-pc-windows-msvc
+      - name: Verify installer product version
+        shell: pwsh
+        env:
+          EXPECTED_VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          $msi = Get-ChildItem src-tauri/target/x86_64-pc-windows-msvc/release/bundle/msi -Filter *.msi | Select-Object -First 1
+          if (-not $msi) { throw 'MSI installer missing' }
+          $installer = New-Object -ComObject WindowsInstaller.Installer
+          $db = $installer.OpenDatabase($msi.FullName, 0)
+          $view = $db.OpenView("SELECT ``Value`` FROM ``Property`` WHERE ``Property`` = 'ProductVersion'")
+          $view.Execute()
+          $record = $view.Fetch()
+          $actual = $record.GetType().InvokeMember('StringData', 'GetProperty', $null, $record, @(1))
+          if ($actual -ne $env:EXPECTED_VERSION) { throw "MSI version mismatch: $actual" }
+          Write-Host "MSI version verified: $actual"
+
+  linux:
+    needs: prepare
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.tag }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: './src-tauri -> target'
+      - name: Install Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file \
+            libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev \
+            libcap2-bin patchelf libglib2.0-bin gsettings-desktop-schemas \
+            dconf-gsettings-backend dbus
+      - name: Build .deb and AppImage
+        env:
+          APPIMAGE_EXTRACT_AND_RUN: '1'
+        run: bash scripts/build-linux.sh
+      - name: Rust and isolated desktop proxy tests
+        run: |
+          cargo test --locked --release --target x86_64-unknown-linux-gnu --manifest-path src-tauri/Cargo.toml
+          test_config_dir=$(mktemp -d)
+          dbus-run-session -- env XDG_CONFIG_HOME="$test_config_dir" XDG_CURRENT_DESKTOP=X-Cinnamon \
+            cargo test --locked --release --target x86_64-unknown-linux-gnu --manifest-path src-tauri/Cargo.toml \
+            desktop_proxy_restores_after_reconnect_and_crash -- --ignored --nocapture
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-${{ needs.prepare.outputs.version }}
+          path: artifacts/linux/
+          if-no-files-found: error
+
+  publish:
+    needs: [prepare, windows, linux]
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GH_REPO: ${{ github.repository }}
+      RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.tag }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/download-artifact@v4
+        with:
+          name: linux-${{ needs.prepare.outputs.version }}
+          path: release-assets/
+      - name: Install signature verifier
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y minisign
+      - name: Assemble and verify all packages
+        run: |
+          gh release download "$RELEASE_TAG" --dir release-assets
+          node scripts/prepare-release.mjs release-assets
+      - name: Publish one complete release
+        run: |
+          gh release upload "$RELEASE_TAG" release-assets/* --clobber
+          gh release edit "$RELEASE_TAG" --draft=false --latest \
+            --title "LCD Proxy $RELEASE_TAG · Windows / Linux" \
+            --notes-file artifacts/release-notes.md

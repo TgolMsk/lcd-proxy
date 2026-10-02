@@ -6,11 +6,11 @@
 
 ## 安装与使用
 
-已发布的构件见 [Linux Release](https://github.com/TgolMsk/lcd-proxy/releases/tag/linux-v0.1.9)。
-构件安装器可直接下载安装包,核对固定 SHA-256 与包版本、架构,再通过 apt 安装:
+已发布的构件见 [Linux Release](https://github.com/TgolMsk/lcd-proxy/releases/tag/v1.0.0)。
+构件安装器可直接下载安装包,核对同版本 SHA256SUMS 中的 SHA-256 与包版本、架构,再通过 apt 安装:
 
 ```sh
-curl -fL https://github.com/TgolMsk/lcd-proxy/releases/download/linux-v0.1.9/install-linux.sh -o install-linux.sh
+curl -fL https://github.com/TgolMsk/lcd-proxy/releases/latest/download/install-linux.sh -o install-linux.sh
 bash install-linux.sh
 ```
 
@@ -18,15 +18,15 @@ bash install-linux.sh
 已有本地构件时,无需重新下载客户端:
 
 ```sh
-bash scripts/install-linux.sh --deb "./artifacts/linux/LCD Proxy_0.1.9_amd64.deb"
+bash scripts/install-linux.sh --deb "./artifacts/linux/LCD Proxy_1.0.0_amd64.deb"
 # 仅验证构件而不安装:
-bash scripts/install-linux.sh --deb "./artifacts/linux/LCD Proxy_0.1.9_amd64.deb" --verify-only
+bash scripts/install-linux.sh --deb "./artifacts/linux/LCD Proxy_1.0.0_amd64.deb" --verify-only
 ```
 
 推荐 `.deb`,可由 Mint 软件包安装器打开,或运行:
 
 ```sh
-sudo apt install "./LCD Proxy_0.1.9_amd64.deb"
+sudo apt install ./lcd-proxy_1.0.0_amd64.deb
 ```
 
 应用菜单启动 LCD Proxy → 导入订阅/分享链接 → 选择节点 → 启动。
@@ -37,7 +37,7 @@ sudo apt install "./LCD Proxy_0.1.9_amd64.deb"
 
 ```sh
 chmod +x ./*.AppImage
-./LCD\ Proxy_0.1.9_amd64.AppImage
+./lcd-proxy_1.0.0_amd64.AppImage
 # 如果系统提示缺少 FUSE,可使用 --appimage-extract-and-run 参数
 ```
 
@@ -83,8 +83,9 @@ npm run build:linux
 `src-tauri/target/x86_64-unknown-linux-gnu/release/bundle/`。
 ARM64 Linux 主机构建时会自动选择 ARM64 内核与目标。
 
-GitHub Actions 的 `Build Linux (Mint / Ubuntu)` 可手动触发或在 main 更新时运行,
-产物保存在 Actions artifacts;该流程不发布 Release。
+GitHub Actions 的 `Release (Windows + Linux)` 在推送 `v1.0.0` 这样的统一版本标签时,
+构建 Windows 与 Linux,验证后发布到同一个 Release。独立的 `Build Linux (Manual)`
+仅用于手动构建诊断,产物保存在 Actions artifacts。
 Linux 包当前没有发布更新清单,应手动安装新包;Windows 更新配置保留。
 
 ## 验证命令

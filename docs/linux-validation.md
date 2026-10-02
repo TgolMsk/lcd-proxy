@@ -1,5 +1,9 @@
 # Linux 构建与验证记录
 
+以下是 0.1.9 Linux 功能验收基线。当前客户端从 **1.0.0** 开始统一 Windows / Linux 版本与 Release;
+版本清单、构建、Windows 更新签名和构件校验在统一发布流程中验证。
+当前构件见 [统一 Release v1.0.0](https://github.com/TgolMsk/lcd-proxy/releases/tag/v1.0.0)。
+
 验证日期:2026-10-02。目标为 Linux Mint 22.3 Cinnamon x86_64。
 已完成 Linux 平台集成、构建 `.deb`/`.AppImage`,并实际运行两种安装包。
 

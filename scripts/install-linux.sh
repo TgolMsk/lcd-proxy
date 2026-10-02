@@ -2,22 +2,23 @@
 set -euo pipefail
 
 # Install the verified x86_64 package; no source checkout or build toolchain needed.
-release_tag=linux-v0.1.9
-package_version=0.1.9
+package_version=1.0.0
+release_tag="v${package_version}"
 package_name="lcd-proxy_${package_version}_amd64.deb"
-package_sha256=6a6a790a29edc3fc000f4eaa020900ff41d2d4cec00458bfab8cc7024c7edcb3
-package_url="https://github.com/TgolMsk/lcd-proxy/releases/download/${release_tag}/${package_name}"
+release_url="https://github.com/TgolMsk/lcd-proxy/releases/download/${release_tag}"
 deb_path=
 download_dir=
 verify_only=false
+checksums_path=
 
 usage() {
   cat <<'EOF'
-LCD Proxy 0.1.9 Linux x86_64 安装器
+LCD Proxy 1.0.0 Linux x86_64 安装器
 
-用法: bash install-linux.sh [--deb FILE] [--verify-only]
+用法: bash install-linux.sh [--deb FILE] [--checksums FILE] [--verify-only]
   默认           下载并校验已发布的 .deb,通过 apt 安装
-  --deb FILE     使用本地构件,仍校验固定 SHA-256
+  --deb FILE     使用本地构件,校验同目录的 SHA256SUMS
+  --checksums FILE 指定校验清单 (默认安装包同目录)
   --verify-only  只校验构件与包信息,不安装
   --help         显示帮助
 
@@ -38,6 +39,11 @@ while [[ $# -gt 0 ]]; do
       shift 2
       ;;
     --verify-only) verify_only=true; shift ;;
+    --checksums)
+      [[ $# -ge 2 && -n "$2" ]] || fail "--checksums 需要清单路径"
+      checksums_path=$2
+      shift 2
+      ;;
     --help|-h) usage; exit 0 ;;
     *) fail "未知参数:$1 (使用 --help 查看用法)" ;;
   esac
@@ -54,15 +60,27 @@ if [[ -z "$deb_path" ]]; then
   download_dir=$(mktemp -d)
   chmod 755 "$download_dir"
   deb_path="$download_dir/$package_name"
-  echo "下载 LCD Proxy ${package_version}:$package_url"
+  echo "下载 LCD Proxy ${package_version}:$release_url/$package_name"
   curl --proto '=https' --tlsv1.2 --fail --location --retry 3 \
-    "$package_url" -o "$deb_path"
+    "$release_url/$package_name" -o "$deb_path"
+  if [[ -z "$checksums_path" ]]; then
+    checksums_path="$download_dir/SHA256SUMS"
+    curl --proto '=https' --tlsv1.2 --fail --location --retry 3 \
+      "$release_url/SHA256SUMS" -o "$checksums_path"
+  fi
   chmod 644 "$deb_path"
 else
   [[ -f "$deb_path" ]] || fail "找不到安装包:$deb_path"
   deb_path="$(cd -P -- "$(dirname -- "$deb_path")" && pwd)/$(basename -- "$deb_path")"
+  if [[ -z "$checksums_path" ]]; then checksums_path="$(dirname -- "$deb_path")/SHA256SUMS"; fi
 fi
 
+[[ -f "$checksums_path" ]] || fail "找不到 SHA256SUMS:$checksums_path"
+local_name=$(basename -- "$deb_path")
+package_sha256=$(awk -v asset="$local_name" '
+  { path=$0; sub(/^[[:xdigit:]]+[[:space:]]+[*]?/, "", path); sub(/^\.\//, "", path);
+    if (path == asset) print $1 }' "$checksums_path")
+[[ "$package_sha256" =~ ^[[:xdigit:]]{64}$ ]] || fail "校验清单缺少此安装包或包含重复记录:$local_name"
 actual_sha256=$(sha256sum -- "$deb_path")
 actual_sha256=${actual_sha256%% *}
 [[ "$actual_sha256" == "$package_sha256" ]] || fail "SHA-256 校验失败,安装已中止"
