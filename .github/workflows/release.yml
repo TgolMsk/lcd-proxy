@@ -214,7 +214,7 @@ jobs:
       - name: Install desktop test dependencies and package
         run: |
           sudo apt-get update
-          sudo apt-get install -y xvfb openbox python3-pyatspi python3-gi xdotool curl
+          sudo apt-get install -y xvfb openbox python3-pyatspi python3-gi gir1.2-gtk-3.0 xdotool curl
           deb_file=$(find artifacts/linux -maxdepth 1 -name '*.deb' -print -quit)
           sudo apt-get install -y "$(realpath "$deb_file")"
       - name: Verify both Linux packages on Mint's Ubuntu base
