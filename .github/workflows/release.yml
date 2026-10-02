@@ -194,11 +194,61 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: linux-${{ needs.prepare.outputs.version }}
-          path: artifacts/linux/
+          path: |
+            artifacts/linux/*.deb
+            artifacts/linux/*.AppImage
+            artifacts/linux/SHA256SUMS
           if-no-files-found: error
 
+  linux-smoke:
+    needs: [prepare, linux]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.tag }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: linux-${{ needs.prepare.outputs.version }}
+          path: artifacts/linux/
+      - name: Install desktop test dependencies and package
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb openbox python3-pyatspi python3-gi xdotool curl
+          deb_file=$(find artifacts/linux -maxdepth 1 -name '*.deb' -print -quit)
+          sudo apt-get install -y "$(realpath "$deb_file")"
+      - name: Verify both Linux packages on Mint's Ubuntu base
+        env:
+          LCD_EXPECTED_VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          image_file=$(find artifacts/linux -maxdepth 1 -name '*.AppImage' -print -quit)
+          chmod +x "$image_file"
+          image_file=$(realpath "$image_file")
+          for package in deb appimage; do
+            test_dir="$RUNNER_TEMP/lcd-proxy-$package"
+            mkdir -p "$test_dir/config" "$test_dir/data"
+            if [ "$package" = appimage ]; then
+              export LCD_APPIMAGE_PATH="$image_file"
+            else
+              unset LCD_APPIMAGE_PATH
+            fi
+            LCD_RELEASE_TEST_DIR="$test_dir" DISPLAY=:95 XDG_CONFIG_HOME="$test_dir/config" \
+              XDG_DATA_HOME="$test_dir/data" XDG_CURRENT_DESKTOP=X-Cinnamon \
+              dbus-run-session -- python3 -u scripts/test-linux-release.py > "$test_dir/test.log" 2>&1 || {
+                cat "$test_dir/test.log"
+                cat "$test_dir/client.log"
+                exit 1
+              }
+            cat "$test_dir/test.log"
+          done
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: linux-smoke-${{ needs.prepare.outputs.version }}
+          path: ${{ runner.temp }}/lcd-proxy-*/
+
   publish:
-    needs: [prepare, windows, linux]
+    needs: [prepare, windows, linux, linux-smoke]
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -223,7 +273,8 @@ jobs:
           sudo apt-get install -y minisign
       - name: Assemble and verify all packages
         run: |
-          gh release download "$RELEASE_TAG" --dir release-assets
+          gh release download "$RELEASE_TAG" --pattern '*.msi' --pattern '*.exe' \
+            --pattern '*.sig' --pattern latest.json --dir release-assets
           node scripts/prepare-release.mjs release-assets
       - name: Publish one complete release
         run: |
