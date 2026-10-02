@@ -129,6 +129,25 @@ fn cleanup(app: &AppHandle) {
     let _ = sysproxy::set(false, "");
 }
 
+#[cfg(target_os = "linux")]
+fn setup_exit_signals(app: &AppHandle) {
+    use tokio::signal::unix::{signal, SignalKind};
+    for kind in [SignalKind::terminate(), SignalKind::interrupt()] {
+        let app = app.clone();
+        tauri::async_runtime::spawn(async move {
+            match signal(kind) {
+                Ok(mut events) => {
+                    if events.recv().await.is_some() {
+                        cleanup(&app);
+                        app.exit(0);
+                    }
+                }
+                Err(error) => eprintln!("无法注册退出信号:{error}"),
+            }
+        });
+    }
+}
+
 fn setup_tray(app: &AppHandle) -> tauri::Result<()> {
     let show = MenuItem::with_id(app, "show", "显示主界面", true, None::<&str>)?;
     let start = MenuItem::with_id(app, "start", "启动代理", true, None::<&str>)?;
@@ -170,6 +189,13 @@ fn show_main_window(app: &AppHandle) {
 }
 
 fn main() {
+    // Verified on Linux's virtual display: WebKit's DMABUF path can show a
+    // white window while the DOM remains active. Use the compatible renderer,
+    // preserving an explicit user override for machines with working drivers.
+    #[cfg(target_os = "linux")]
+    if std::env::var_os("WEBKIT_DISABLE_DMABUF_RENDERER").is_none() {
+        std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
+    }
     tauri::Builder::default()
         // 单实例:双开会抢端口和系统代理,直接聚焦已有窗口
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
@@ -193,8 +219,21 @@ fn main() {
             save_state,
         ])
         .setup(|app| {
+            #[cfg(target_os = "linux")]
+            setup_exit_signals(app.handle());
+            #[cfg(target_os = "linux")]
+            if let Err(error) =
+                sysproxy::init(config::data_dir(app.handle())?.join("proxy-backup.json"))
+            {
+                eprintln!("恢复上次系统代理失败:{error}");
+            }
             // 清掉上次异常退出/提权重启残留的孤儿内核,避免占用端口
             kernel::kill_stray_kernels();
+            #[cfg(target_os = "linux")]
+            if let Err(error) = setup_tray(app.handle()) {
+                eprintln!("桌面托盘不可用:{error}");
+            }
+            #[cfg(not(target_os = "linux"))]
             setup_tray(app.handle())?;
             Ok(())
         })
@@ -202,6 +241,11 @@ fn main() {
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 api.prevent_close();
+                // Some Linux desktops have no indicator host. Keep the taskbar
+                // entry available so closing never makes the app unreachable.
+                #[cfg(target_os = "linux")]
+                let _ = window.minimize();
+                #[cfg(not(target_os = "linux"))]
                 let _ = window.hide();
             }
         })

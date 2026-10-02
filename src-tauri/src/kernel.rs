@@ -15,6 +15,11 @@ use crate::{config, sysproxy};
 const LOG_CAP: usize = 50;
 const READY_TIMEOUT_MS: u64 = 8_000;
 
+#[cfg(target_os = "linux")]
+const SIDECAR_NAME: &str = "lcd-proxy-core";
+#[cfg(not(target_os = "linux"))]
+const SIDECAR_NAME: &str = "sing-box";
+
 #[derive(Default)]
 pub struct KernelState {
     /// 当前内核子进程句柄
@@ -64,6 +69,17 @@ pub fn stop(state: &KernelState) -> Result<(), String> {
 
 /// 写配置 → 检查端口 → 拉起 sidecar → 等待入站端口就绪。
 pub async fn start(app: AppHandle, config_json: String) -> Result<(), String> {
+    #[cfg(target_os = "linux")]
+    {
+        let parsed: serde_json::Value =
+            serde_json::from_str(&config_json).map_err(|e| format!("配置 JSON 非法:{e}"))?;
+        let tun = parsed["inbounds"]
+            .as_array()
+            .is_some_and(|inbounds| inbounds.iter().any(|inbound| inbound["type"] == "tun"));
+        if tun && !crate::elevate::is_elevated() {
+            return Err("TUN 内核尚未获得网络管理权限,请安装 .deb 包并开启 TUN 授权".into());
+        }
+    }
     let state = app.state::<KernelState>();
     let _guard = state.op_lock.lock().await;
 
@@ -92,7 +108,7 @@ pub async fn start(app: AppHandle, config_json: String) -> Result<(), String> {
     // 4. 拉起 sidecar:sing-box run -c config.json
     let command = app
         .shell()
-        .sidecar("sing-box")
+        .sidecar(SIDECAR_NAME)
         .map_err(|e| format!("定位内核二进制失败:{e}(是否已放置 sing-box?)"))?
         .args(["run", "-c", &config_path.to_string_lossy()]);
 
@@ -112,7 +128,9 @@ pub async fn start(app: AppHandle, config_json: String) -> Result<(), String> {
     tauri::async_runtime::spawn(async move {
         use std::io::Write;
         // 每次运行覆盖写,只保留本次日志
-        let mut log_file = log_path.as_ref().and_then(|p| std::fs::File::create(p).ok());
+        let mut log_file = log_path
+            .as_ref()
+            .and_then(|p| std::fs::File::create(p).ok());
         while let Some(event) = rx.recv().await {
             let st = watch_app.state::<KernelState>();
             match event {
@@ -198,12 +216,92 @@ pub fn kill_stray_kernels() {
                 .output();
         }
     }
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(target_os = "macos")]
     {
         let _ = std::process::Command::new("pkill")
             .args(["-f", "sing-box"])
             .output();
     }
+    // Linux must not kill sing-box instances owned by other applications. A
+    // surviving child is recovered only when its private name, UID and config match us.
+    #[cfg(target_os = "linux")]
+    {
+        use std::os::unix::ffi::OsStrExt;
+        let Ok(entries) = std::fs::read_dir("/proc") else {
+            return;
+        };
+        let Some(uid) = process_uid(std::path::Path::new("/proc/self")) else {
+            return;
+        };
+        for entry in entries.flatten() {
+            let name = entry.file_name();
+            let Some(pid) = name
+                .to_str()
+                .filter(|name| name.chars().all(|c| c.is_ascii_digit()))
+            else {
+                continue;
+            };
+            let path = entry.path();
+            if process_uid(&path) != Some(uid) {
+                continue;
+            }
+            let Ok(cmdline) = std::fs::read(path.join("cmdline")) else {
+                continue;
+            };
+            let args: Vec<_> = cmdline.split(|byte| *byte == 0).collect();
+            // /proc/PID/exe is not readable after a capability-enabled exec.
+            // AppImage mount paths change on every launch. Match the dedicated
+            // sidecar name, real UID and our exact private config instead.
+            let executable = args
+                .first()
+                .map(|arg| std::path::Path::new(std::ffi::OsStr::from_bytes(arg)));
+            if executable.and_then(|path| path.file_name())
+                != Some(std::ffi::OsStr::new(SIDECAR_NAME))
+            {
+                continue;
+            }
+            if !args.iter().any(|arg| *arg == b"run") {
+                continue;
+            }
+            let config = args
+                .windows(2)
+                .find(|pair| pair[0] == b"-c")
+                .map(|pair| pair[1]);
+            let Some(config) = config.and_then(|bytes| std::str::from_utf8(bytes).ok()) else {
+                continue;
+            };
+            let Some(data_dir) = linux_data_dir() else {
+                continue;
+            };
+            if std::path::Path::new(config) == data_dir.join("config.json") {
+                let _ = std::process::Command::new("kill")
+                    .args(["-TERM", pid])
+                    .output();
+            }
+        }
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn process_uid(path: &std::path::Path) -> Option<u32> {
+    std::fs::read_to_string(path.join("status"))
+        .ok()?
+        .lines()
+        .find(|line| line.starts_with("Uid:"))?
+        .split_whitespace()
+        .nth(1)?
+        .parse()
+        .ok()
+}
+
+#[cfg(target_os = "linux")]
+fn linux_data_dir() -> Option<std::path::PathBuf> {
+    let base = std::env::var_os("XDG_DATA_HOME")
+        .map(std::path::PathBuf::from)
+        .or_else(|| {
+            std::env::var_os("HOME").map(|home| std::path::PathBuf::from(home).join(".local/share"))
+        })?;
+    Some(base.join("com.lcdproxy.app"))
 }
 
 /// 探测 127.0.0.1:port 是否有人监听

@@ -7,7 +7,7 @@
 - 支持 **VLESS(TLS/WS/gRPC/Reality)、Shadowsocks(SIP002 + 旧格式)、ShadowsocksR** 分享链接
 - 订阅支持两种格式,自动识别:**① base64/明文分享链接列表**;**② sing-box 完整配置 profile**(如 Surge Config Center,只抽取节点、不套用其路由规则)
 - 手动粘贴导入(分享链接或 profile JSON 均可),节点存本地 JSON
-- **系统代理模式**(写 Windows 注册表)与 **TUN 全局模式**(虚拟网卡接管全局流量,自动申请管理员权限)两种模式,一键切换
+- **系统代理模式**(Windows 注册表 / Linux GNOME、Cinnamon 设置)与 **TUN 全局模式**,一键切换
 - 启动/切换自动重启内核,退出自动清理
 - TCP 连接测速、系统托盘(启动/停止/退出)、单实例
 
@@ -19,13 +19,41 @@
 | 内核 | sing-box(sidecar 方式打包,`src-tauri/binaries/`) |
 | UI | 纯 CSS 实现现代仪表盘风(Inter 可变字体本地打包;渐变背景 + 毛玻璃卡片 + 薄荷绿强调;深/浅色) |
 | 存储 | 应用数据目录下 `state.json` / `config.json` |
-| 系统代理 | 注册表 `ProxyEnable/ProxyServer` + WinINet 广播刷新(仅 Windows) |
+| 系统代理 | Windows 注册表 + WinINet;Linux GNOME/Cinnamon GSettings,断开时恢复原设置 |
+
+## Linux Mint 22.3 Cinnamon 64 位
+
+提供 **x86_64 `.deb` 安装包与 `.AppImage` 便携包**,内置 sing-box 1.12.4。
+
+[下载 Linux 安装构件](https://github.com/TgolMsk/lcd-proxy/releases/tag/linux-v0.1.9)。
+也可在 Linux 终端运行构件安装器,直接下载、校验 SHA-256 并安装:
+
+```sh
+curl -fL https://github.com/TgolMsk/lcd-proxy/releases/download/linux-v0.1.9/install-linux.sh -o install-linux.sh
+bash install-linux.sh
+```
+
+```sh
+# 推荐安装方式:在安装包所在目录运行
+sudo apt install "./LCD Proxy_0.1.9_amd64.deb"
+# 在应用菜单打开 LCD Proxy,导入订阅/节点后点击「启动」
+```
+
+系统代理直接写入 Cinnamon 使用的 `org.gnome.system.proxy`,无须 root。
+停止、退出、内核崩溃时恢复连接前的设置;进程被强杀时,下次启动会恢复备份。
+`.deb` 的 TUN 模式通过系统授权对 `/usr/bin/lcd-proxy-core` 授予网络管理权限,
+图形界面保持普通用户身份;AppImage 使用系统代理,TUN 请安装 `.deb`。
+
+Linux 下关窗会最小化到任务栏,托盘提供启动、停止和退出菜单。
+CLI 程序若不读取桌面代理,可使用 `HTTPS_PROXY=http://127.0.0.1:10808`,或开启 TUN。
+
+构建和权限说明见 [Linux 使用与构建](docs/linux.md),实测结果见 [Linux 验证记录](docs/linux-validation.md)。
 
 ## 快速开始(macOS 开发机)
 
 ```sh
 npm install
-npm test          # 26 个解析器/配置生成器单元测试
+npm test          # 37 个解析器/订阅/配置生成器单元测试
 npm run tauri dev # 起开发窗口(UI、解析、订阅逻辑均可在 Mac 上调)
 ```
 
@@ -129,6 +157,8 @@ src-tauri/
   src/main.rs        # Tauri 入口:命令注册、托盘、退出清理
   src/kernel.rs      # sing-box 进程拉起/杀死/意外退出监控
   src/sysproxy.rs    # Windows 注册表系统代理 + WinINet 广播
+  src/sysproxy_linux.rs # Linux GNOME/Cinnamon 代理备份与恢复
+  src/elevate_linux.rs # Linux 内核网络权限授权
   src/config.rs      # 配置/状态文件落盘、端口提取
   binaries/          # sing-box sidecar(见其中 README)
 src/
@@ -137,6 +167,8 @@ src/
   api/               # 订阅拉取、Rust 命令封装
   store/             # 节点列表 / 连接状态(useSyncExternalStore)
   ui/                # StatusHeader / NodeList / ControlBar … + theme.css
+scripts/build-linux.sh # Linux 内核下载、校验、构建与产物归档
+scripts/install-linux.sh # 下载或使用本地构件,校验后通过 apt 安装
 ```
 
 ## 界面速览

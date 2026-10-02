@@ -7,6 +7,13 @@ Tauri 以 sidecar 方式打包内核,文件必须按「目标平台三元组」�
 | Windows x64(**发布目标**) | `sing-box-x86_64-pc-windows-msvc.exe` |
 | macOS Apple Silicon(本机开发) | `sing-box-aarch64-apple-darwin` |
 | macOS Intel | `sing-box-x86_64-apple-darwin` |
+| Linux x86_64 (Mint/Ubuntu) | `lcd-proxy-core-x86_64-unknown-linux-gnu` |
+| Linux ARM64 | `lcd-proxy-core-aarch64-unknown-linux-gnu` |
+
+Linux 使用独立的 `lcd-proxy-core` 名称,避免覆盖或清理其他软件的 sing-box。
+`npm run build:linux` 从官方 Release 下载 1.12.4 并校验固定 SHA-256,
+不需要手动放置内核。升级内核时同步更新 `scripts/sing-box-version` 与
+`scripts/sing-box-checksums.sha256`(校验值来自官方 GitHub Release asset 的 `digest`)。
 
 ## Windows 正式包
 

@@ -14,6 +14,12 @@ pub fn data_dir(app: &AppHandle) -> Result<PathBuf, String> {
         .app_data_dir()
         .map_err(|e| format!("无法定位应用数据目录:{e}"))?;
     fs::create_dir_all(&dir).map_err(|e| format!("创建数据目录失败:{e}"))?;
+    #[cfg(target_os = "linux")]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&dir, fs::Permissions::from_mode(0o700))
+            .map_err(|e| format!("保护数据目录失败:{e}"))?;
+    }
     Ok(dir)
 }
 
@@ -22,7 +28,7 @@ pub fn write_config(app: &AppHandle, config_json: &str) -> Result<PathBuf, Strin
     serde_json::from_str::<serde_json::Value>(config_json)
         .map_err(|e| format!("配置 JSON 非法:{e}"))?;
     let path = data_dir(app)?.join("config.json");
-    fs::write(&path, config_json).map_err(|e| format!("写入配置文件失败:{e}"))?;
+    write_private(&path, config_json).map_err(|e| format!("写入配置文件失败:{e}"))?;
     Ok(path)
 }
 
@@ -57,8 +63,48 @@ pub fn load_state_file(app: &AppHandle) -> Result<String, String> {
 }
 
 pub fn save_state_file(app: &AppHandle, json: &str) -> Result<(), String> {
-    serde_json::from_str::<serde_json::Value>(json)
-        .map_err(|e| format!("状态 JSON 非法:{e}"))?;
+    serde_json::from_str::<serde_json::Value>(json).map_err(|e| format!("状态 JSON 非法:{e}"))?;
     let path = state_path(app)?;
-    fs::write(&path, json).map_err(|e| format!("写入状态文件失败:{e}"))
+    write_private(&path, json).map_err(|e| format!("写入状态文件失败:{e}"))
+}
+
+fn write_private(path: &std::path::Path, contents: &str) -> std::io::Result<()> {
+    #[cfg(target_os = "linux")]
+    {
+        use std::io::Write;
+        use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+        let pending = path.with_extension("tmp");
+        let mut file = fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .mode(0o600)
+            .open(&pending)?;
+        file.set_permissions(fs::Permissions::from_mode(0o600))?;
+        file.write_all(contents.as_bytes())?;
+        file.sync_all()?;
+        fs::rename(pending, path)
+    }
+    #[cfg(not(target_os = "linux"))]
+    fs::write(path, contents)
+}
+
+#[cfg(all(test, target_os = "linux"))]
+mod tests {
+    use super::*;
+    use std::os::unix::fs::PermissionsExt;
+
+    #[test]
+    fn credentials_remain_private_after_replacing_existing_state() {
+        let dir = std::env::temp_dir().join(format!("lcd-state-test-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("state.json");
+        fs::write(&path, "old").unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o644)).unwrap();
+        write_private(&path, "new-state").unwrap();
+        assert_eq!(fs::read_to_string(&path).unwrap(), "new-state");
+        assert_eq!(path.metadata().unwrap().permissions().mode() & 0o777, 0o600);
+        assert!(!path.with_extension("tmp").exists());
+        fs::remove_dir_all(dir).unwrap();
+    }
 }

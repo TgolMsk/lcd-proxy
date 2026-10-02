@@ -38,7 +38,7 @@ export function logStatus(message: string) {
 /** 确保 TUN 所需管理员权限;不足则以管理员重启(成功后进程退出),用户取消则抛错 */
 async function ensureTunElevation(): Promise<void> {
   if (await isElevated()) return;
-  logStatus("TUN 模式需要管理员权限,正在以管理员身份重启 …");
+  logStatus("TUN 模式需要网络管理权限,正在请求系统授权 …");
   await relaunchAsAdmin(); // 成功:进程退出;取消:抛错
 }
 

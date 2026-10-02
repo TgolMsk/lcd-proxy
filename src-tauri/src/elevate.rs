@@ -18,9 +18,7 @@ pub fn is_elevated() -> bool {
         if OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut token) == 0 {
             return false;
         }
-        let mut elevation = TOKEN_ELEVATION {
-            TokenIsElevated: 0,
-        };
+        let mut elevation = TOKEN_ELEVATION { TokenIsElevated: 0 };
         let mut ret_len = 0u32;
         let ok = GetTokenInformation(
             token,
@@ -78,15 +76,21 @@ pub fn relaunch_as_admin() -> Result<(), String> {
     std::process::exit(0);
 }
 
-// ---- 非 Windows(macOS/Linux 开发环境)----
+#[cfg(target_os = "linux")]
+#[path = "elevate_linux.rs"]
+mod linux;
+#[cfg(target_os = "linux")]
+pub use linux::{is_elevated, relaunch_as_admin};
+
+// ---- macOS 开发环境 ----
 // 开发时假装已提权,让 TUN 连接流程能走通做 UI 联调(占位内核会自然失败)。
 
-#[cfg(not(target_os = "windows"))]
+#[cfg(not(any(target_os = "windows", target_os = "linux")))]
 pub fn is_elevated() -> bool {
     true
 }
 
-#[cfg(not(target_os = "windows"))]
+#[cfg(not(any(target_os = "windows", target_os = "linux")))]
 pub fn relaunch_as_admin() -> Result<(), String> {
     Err("以管理员身份重启仅 Windows 支持".into())
 }

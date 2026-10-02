@@ -4,6 +4,8 @@ src-tauri/target
 src-tauri/gen/schemas
 .DS_Store
 *.log
+artifacts/
+src-tauri/binaries/lcd-proxy-core-*-unknown-linux-gnu
 
 # 更新签名私钥,绝不入库
 *.key

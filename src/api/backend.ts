@@ -14,12 +14,12 @@ export function setSystemProxy(enable: boolean, server: string): Promise<void> {
   return invoke("set_system_proxy", { enable, server });
 }
 
-/** 当前进程是否具管理员权限(TUN 前置检查) */
+/** TUN 前置检查:Windows 进程提权 / Linux 内核网络 capabilities */
 export function isElevated(): Promise<boolean> {
   return invoke<boolean>("is_elevated");
 }
 
-/** 以管理员身份重启自身;成功后当前实例会退出 */
+/** Windows 提权重启;Linux 只授权 .deb 内核,当前图形实例保持运行 */
 export function relaunchAsAdmin(): Promise<void> {
   return invoke("relaunch_as_admin");
 }

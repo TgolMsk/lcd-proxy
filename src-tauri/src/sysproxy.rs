@@ -1,7 +1,13 @@
 //! Windows 系统代理(注册表)读写。
 //! 启用:ProxyEnable=1 + ProxyServer=127.0.0.1:10808;停用:ProxyEnable=0。
 //! 改完通过 WinINet InternetSetOption 广播设置变更,立即生效。
-//! 非 Windows 平台:空实现(开发模式直接放行,便于在 macOS 上调 UI)。
+//! Linux:GNOME/Cinnamon GSettings,并保存、恢复用户原有设置。
+
+#[cfg(target_os = "linux")]
+#[path = "sysproxy_linux.rs"]
+mod linux;
+#[cfg(target_os = "linux")]
+pub use linux::{init, set};
 
 #[cfg(target_os = "windows")]
 pub fn set(enable: bool, server: &str) -> Result<(), String> {
@@ -67,11 +73,9 @@ fn broadcast_change() {
     }
 }
 
-#[cfg(not(target_os = "windows"))]
+#[cfg(not(any(target_os = "windows", target_os = "linux")))]
 pub fn set(enable: bool, _server: &str) -> Result<(), String> {
     // macOS/Linux 开发环境:不改系统代理,仅打日志
-    eprintln!(
-        "[sysproxy] 非 Windows 平台,跳过系统代理设置(enable={enable})——仅 Windows 正式支持"
-    );
+    eprintln!("[sysproxy] 非 Windows 平台,跳过系统代理设置(enable={enable})——仅 Windows 正式支持");
     Ok(())
 }

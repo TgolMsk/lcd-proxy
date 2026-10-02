@@ -1,0 +1,4 @@
+LCD Proxy bundles the unmodified official sing-box 1.12.4 Linux release.
+Source: https://github.com/SagerNet/sing-box/tree/v1.12.4
+Release: https://github.com/SagerNet/sing-box/releases/tag/v1.12.4
+The sing-box license is included in LICENSE in this directory.
