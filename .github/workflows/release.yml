@@ -9,6 +9,11 @@ on:
         description: 'Existing version tag, for example v1.0.0'
         required: true
         type: string
+      reuse_windows:
+        description: 'Retry using signed Windows packages already in this draft release'
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -56,6 +61,10 @@ jobs:
     runs-on: windows-latest
     permissions:
       contents: write
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GH_REPO: ${{ github.repository }}
+      RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -64,13 +73,20 @@ jobs:
         with:
           node-version: 22
           cache: npm
+      - name: Restore Windows installer for a release retry
+        if: ${{ inputs.reuse_windows == true }}
+        shell: pwsh
+        run: gh release download $env:RELEASE_TAG --pattern '*.msi' --dir reused-windows
       - uses: dtolnay/rust-toolchain@stable
+        if: ${{ inputs.reuse_windows != true }}
         with:
           targets: x86_64-pc-windows-msvc
       - uses: swatinem/rust-cache@v2
+        if: ${{ inputs.reuse_windows != true }}
         with:
           workspaces: './src-tauri -> target'
       - name: Download and verify Windows core
+        if: ${{ inputs.reuse_windows != true }}
         shell: pwsh
         run: |
           $ver = (Get-Content scripts/sing-box-version -Raw).Trim()
@@ -87,8 +103,11 @@ jobs:
           & src-tauri/binaries/sing-box-x86_64-pc-windows-msvc.exe version
           if ($LASTEXITCODE -ne 0) { throw 'Core executable cannot run' }
       - run: npm ci
+        if: ${{ inputs.reuse_windows != true }}
       - run: npm test
+        if: ${{ inputs.reuse_windows != true }}
       - name: Build and sign Windows installers in draft release
+        if: ${{ inputs.reuse_windows != true }}
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -105,8 +124,10 @@ jobs:
         shell: pwsh
         env:
           EXPECTED_VERSION: ${{ needs.prepare.outputs.version }}
+          REUSE_WINDOWS: ${{ inputs.reuse_windows }}
         run: |
-          $msi = Get-ChildItem src-tauri/target/x86_64-pc-windows-msvc/release/bundle/msi -Filter *.msi | Select-Object -First 1
+          $msiDir = if ($env:REUSE_WINDOWS -eq 'true') { 'reused-windows' } else { 'src-tauri/target/x86_64-pc-windows-msvc/release/bundle/msi' }
+          $msi = Get-ChildItem $msiDir -Filter *.msi | Select-Object -First 1
           if (-not $msi) { throw 'MSI installer missing' }
           $installer = New-Object -ComObject WindowsInstaller.Installer
           $db = $installer.OpenDatabase($msi.FullName, 0)
@@ -147,7 +168,7 @@ jobs:
         run: |
           cargo test --locked --release --target x86_64-unknown-linux-gnu --manifest-path src-tauri/Cargo.toml
           test_config_dir=$(mktemp -d)
-          dbus-run-session -- env XDG_CONFIG_HOME="$test_config_dir" XDG_CURRENT_DESKTOP=X-Cinnamon \
+          XDG_CONFIG_HOME="$test_config_dir" XDG_CURRENT_DESKTOP=X-Cinnamon dbus-run-session -- \
             cargo test --locked --release --target x86_64-unknown-linux-gnu --manifest-path src-tauri/Cargo.toml \
             desktop_proxy_restores_after_reconnect_and_crash -- --ignored --nocapture
       - uses: actions/upload-artifact@v4
