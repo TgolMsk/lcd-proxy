@@ -141,8 +141,7 @@ export function Settings() {
       </section>
 
       <section className="panel">
-        <Row title="版本" hint={update.message || undefined}>
-          <span className="muted">{version}</span>
+        <Row title={version ? `版本 ${version}` : "版本"} hint={update.message || undefined}>
           <button
             className="btn"
             disabled={update.status === "checking" || update.status === "downloading"}
