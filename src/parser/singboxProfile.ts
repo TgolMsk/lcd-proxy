@@ -8,10 +8,9 @@ import { ParseListResult } from "./index";
  * 而是一份完整的 sing-box 配置 JSON:含 inbounds(通常 tun)、outbounds
  * (真实节点 + 大量 selector 策略分组)、以及成百条 route 规则。
  *
- * 本项目的模型是「从列表里选一个节点 → 生成自己的配置」,不消费 profile 里的
- * 路由规则与分组。所以这里只做一件事:把 outbounds 里的**真实代理节点**
- * (vless / shadowsocks / shadowsocksr)抽成统一的 Node,丢弃 selector /
- * urltest / direct / block / dns 等非节点出站,以及 route/dns/inbounds。
+ * 这里只抽取 outbounds 里的**真实代理节点**,丢弃 selector / urltest / direct /
+ * block / dns 等非节点出站,以及 route/dns/inbounds。Clash 订阅的分组和规则由
+ * parser/clash.ts 处理。
  */
 
 /** sing-box outbound.type → 我们的内部协议名 */
@@ -19,7 +18,18 @@ const TYPE_MAP: Record<string, Protocol> = {
   vless: "vless",
   shadowsocks: "shadowsocks",
   shadowsocksr: "shadowsocksr",
+  vmess: "vmess",
+  trojan: "trojan",
+  hysteria: "hysteria",
+  hysteria2: "hysteria2",
+  tuic: "tuic",
+  anytls: "anytls",
+  socks: "socks",
+  http: "http",
 };
+
+/** 这些字段引用配置里的其他部分,单独取出节点后不再有效 */
+const DROPPED_FIELDS = ["tag", "detour", "domain_resolver"];
 
 /** 判断一段文本是否是 sing-box 配置 profile(而非分享链接列表) */
 export function isSingboxProfile(text: string): boolean {
@@ -95,7 +105,11 @@ export function outboundToNode(ob: any): Node {
     if (!ob.method || ob.password == null) throw new Error("缺 method/password");
     return { ...base, method: String(ob.method), password: String(ob.password) };
   }
-  // shadowsocksr
+  if (protocol !== "shadowsocksr") {
+    const outbound: Record<string, unknown> = { ...ob };
+    for (const field of DROPPED_FIELDS) delete outbound[field];
+    return { ...base, outbound };
+  }
   if (!ob.method || ob.password == null) throw new Error("缺 method/password");
   return {
     ...base,

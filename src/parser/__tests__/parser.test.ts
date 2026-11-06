@@ -167,7 +167,7 @@ describe("parseUriList", () => {
     const good1 = `ss://${ssUser}@a.example.com:443#A`;
     const good2 =
       "vless://11111111-2222-3333-4444-555555555555@b.example.com:443?type=tcp#B";
-    const text = [good1, "", "garbage-line", good2, good1, "trojan://xxx@y:1"].join(
+    const text = [good1, "", "garbage-line", good2, good1, "foo://xxx@y:1"].join(
       "\n",
     );
     const { nodes, errors } = parseUriList(text);

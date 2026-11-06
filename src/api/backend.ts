@@ -2,12 +2,36 @@ import { invoke } from "@tauri-apps/api/core";
 
 /** Rust 后端命令的类型化封装,集中在一处便于查阅 */
 
-export function startKernel(configJson: string): Promise<void> {
-  return invoke("start_kernel", { configJson });
+export interface StartReport {
+  /** 内核不接受、已从本次配置里去掉的节点 */
+  dropped: string[];
+}
+
+export function startKernel(configJson: string): Promise<StartReport> {
+  return invoke<StartReport>("start_kernel", { configJson });
 }
 
 export function stopKernel(): Promise<void> {
   return invoke("stop_kernel");
+}
+
+/** 请求内核本地接口(Clash API),返回响应正文 */
+export function kernelApi(
+  method: string,
+  path: string,
+  body?: unknown,
+  timeoutMs = 5000,
+): Promise<string> {
+  return invoke<string>("kernel_api", {
+    method,
+    path,
+    body: body === undefined ? null : JSON.stringify(body),
+    timeoutMs,
+  });
+}
+
+export function kernelLogs(): Promise<string[]> {
+  return invoke<string[]>("kernel_logs");
 }
 
 export function setSystemProxy(enable: boolean, server: string): Promise<void> {
@@ -39,10 +63,39 @@ export function tcpPing(host: string, port: number, timeoutMs = 3000): Promise<n
   return invoke<number>("tcp_ping", { host, port, timeoutMs });
 }
 
-export function loadState(): Promise<string> {
-  return invoke<string>("load_state");
+export interface Fetched {
+  body: string;
+  userInfo: string | null;
+  updateInterval: string | null;
+  disposition: string | null;
+  webPage: string | null;
+  title: string | null;
+  viaProxy: boolean;
 }
 
-export function saveState(json: string): Promise<void> {
-  return invoke("save_state", { json });
+/** 下载订阅或规则文件。直连失败且内核在运行时,后端自动经本地代理重试 */
+export function fetchUrl(url: string): Promise<Fetched> {
+  return invoke<Fetched>("fetch_subscription", { url });
+}
+
+export interface StoreFile {
+  content: string;
+  /** 主文件缺失或损坏,内容来自备份 */
+  recovered: boolean;
+}
+
+export function storeRead(name: string): Promise<StoreFile | null> {
+  return invoke<StoreFile | null>("store_read", { name });
+}
+
+export function storeWrite(name: string, json: string): Promise<void> {
+  return invoke("store_write", { name, json });
+}
+
+export function storeDelete(name: string): Promise<void> {
+  return invoke("store_delete", { name });
+}
+
+export function storeRetire(name: string, newName: string): Promise<void> {
+  return invoke("store_retire", { name, newName });
 }

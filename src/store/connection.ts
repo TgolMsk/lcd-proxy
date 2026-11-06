@@ -1,185 +1,314 @@
 import { listen } from "@tauri-apps/api/event";
-import { Node } from "../parser/types";
-import { buildSingBoxConfig, PROXY_SERVER } from "../config/singbox";
 import {
+  isElevated,
+  kernelApi,
+  relaunchAsAdmin,
+  setSystemProxy,
   startKernel,
   stopKernel,
-  setSystemProxy,
   tcpPing,
-  isElevated,
-  relaunchAsAdmin,
 } from "../api/backend";
+import { BuildResult, buildSingBoxConfig, DELAY_TEST_URL, ProxyMode } from "../config/singbox";
+import { Node, unsupportedReason } from "../parser/types";
 import { createStore, useStore } from "./createStore";
-import { nodesStore, setTunMode } from "./nodes";
+import { pushLog } from "./logs";
+import { notify } from "./notice";
+import { pingsStore, setPing } from "./pings";
+import { allNodes, loadRules, profilesStore } from "./profiles";
+import { saveSettingsNow, settingsStore, updateSettings } from "./settings";
+import { pushTraffic, resetTraffic } from "./traffic";
+import { checkUpdate } from "./update";
 
-/** off=待机 connecting=连接中 on=已连接 fault=失败 */
+/** off=未连接 connecting=连接中 on=已连接 fault=失败 */
 export type ConnStatus = "off" | "connecting" | "on" | "fault";
+export type Health = "unknown" | "checking" | "ok" | "bad";
 
 export interface ConnectionState {
   status: ConnStatus;
-  activeNodeId: string | null; // 当前生效的节点
-  latency: number | null; // 顶栏数码管显示的延迟
-  message: string; // 状态行提示文字
+  /** 连通性:连上后经节点访问测试网址的结果 */
+  health: Health;
+  latency: number | null;
+  /** 失败原因 */
+  error: string;
+  /** 本次连接时间 */
+  since: number | null;
+  /** 本次运行用的是 TUN */
+  tun: boolean;
 }
 
-export const connectionStore = createStore<ConnectionState>({
+const OFF: ConnectionState = {
   status: "off",
-  activeNodeId: null,
+  health: "unknown",
   latency: null,
-  message: "就绪。选择一个节点后按「启动」",
-});
+  error: "",
+  since: null,
+  tun: false,
+};
 
+export const connectionStore = createStore<ConnectionState>(OFF);
 export const useConnection = () => useStore(connectionStore);
 
-export function logStatus(message: string) {
-  connectionStore.set({ message });
+/** 运行中配置的 tag 映射 */
+let running: BuildResult | null = null;
+let updateChecked = false;
+
+function proxyServer() {
+  return `127.0.0.1:${settingsStore.get().port}`;
 }
 
-/** 确保 TUN 所需管理员权限;不足则以管理员重启(成功后进程退出),用户取消则抛错 */
+/** TUN 需要管理员权限。Windows 上这里会重启应用,重启后接着连接 */
 async function ensureTunElevation(): Promise<void> {
   if (await isElevated()) return;
-  logStatus("TUN 模式需要网络管理权限,正在请求系统授权 …");
-  await relaunchAsAdmin(); // 成功:进程退出;取消:抛错
-}
-
-/**
- * 切换 TUN 模式(UI 开关调用)。
- * 开启:先落盘,再检查/申请管理员权限(未提权则以管理员重启当前进程);
- * 关闭:落盘即可。若当前在线,用新模式重连当前节点。
- */
-export async function toggleTun(): Promise<void> {
-  const turningOn = !nodesStore.get().tunMode;
-  const { status, activeNodeId } = connectionStore.get();
-  const wasOnline = status === "on";
-
-  // 开启且可能触发提权重启:先干净断开(清系统代理+杀内核),
-  // 让当前实例可安全硬退出,不留残留代理
-  if (turningOn && wasOnline) await disconnect();
-
-  await setTunMode(turningOn); // 立即落盘,保证提权重启后状态保留
-
-  if (turningOn) {
-    try {
-      await ensureTunElevation(); // 若需提权:进程在此退出,不再往下
-    } catch (e) {
-      await setTunMode(false); // 用户取消 UAC → 回退
-      logStatus(`未开启 TUN:${errText(e)}`);
-      return;
-    }
-    logStatus("TUN 模式已开启");
-  } else {
-    logStatus("TUN 模式已关闭");
-  }
-
-  // 已提权(或非 Windows / 关闭)且之前在线 → 用新模式重连当前节点
-  if (wasOnline && activeNodeId) {
-    const node = nodesStore.get().nodes.find((n) => n.id === activeNodeId);
-    if (node) await connect(node);
-  }
-}
-
-/**
- * 启动 / 切换连接:
- * 生成配置 → 拉起内核(Rust 侧自动杀旧进程)→ 设系统代理 → ONLINE。
- * 任一步失败:回收内核与系统代理,状态置 fault,给出可读错误。
- */
-export async function connect(node: Node): Promise<void> {
-  const { status } = connectionStore.get();
-  if (status === "connecting") return;
-
-  const switching = status === "on";
-  connectionStore.set({
-    status: "connecting",
-    latency: null,
-    message: switching
-      ? `切换节点 › ${node.name} … 重启内核`
-      : `正在拉起内核 sing-box … 连接 ${node.name}`,
-  });
-
+  await saveSettingsNow({ resumeAfterElevate: true });
   try {
-    const tun = nodesStore.get().tunMode;
-    // TUN 需要管理员权限:不足则发起提权重启(成功则进程退出,不再往下走)
-    if (tun) await ensureTunElevation();
+    await relaunchAsAdmin();
+  } finally {
+    // Linux 授权后不重启,走到这里继续连接
+    await saveSettingsNow({ resumeAfterElevate: false });
+  }
+}
 
-    const config = buildSingBoxConfig(node, { tun });
-    await startKernel(JSON.stringify(config, null, 2));
+async function buildConfig(): Promise<BuildResult> {
+  const settings = settingsStore.get();
+  const rules = settings.activeRules ? await loadRules(settings.activeRules) : null;
+  return buildSingBoxConfig({
+    nodes: allNodes(),
+    selectedId: settings.selected,
+    mode: settings.mode,
+    tun: settings.tun,
+    ipv6: settings.ipv6,
+    stack: settings.stack,
+    port: settings.port,
+    logLevel: settings.logLevel,
+    directDns: settings.directDns,
+    rules,
+    customRules: settings.customRules,
+    groupChoices: settings.groupChoices,
+    cnDirect: settings.cnDirect,
+  });
+}
 
-    if (tun) {
+/**
+ * 连接:生成配置 → 拉起内核(后端先停旧进程)→ 设系统代理 → 检查连通性。
+ * 任一步失败都回收内核与系统代理,避免留下坏代理导致断网。
+ */
+export async function connect(): Promise<void> {
+  if (connectionStore.get().status === "connecting") return;
+  const settings = settingsStore.get();
+  connectionStore.set({ ...OFF, status: "connecting" });
+  try {
+    if (settings.tun) await ensureTunElevation();
+    const built = await buildConfig();
+    const report = await startKernel(JSON.stringify(built.config));
+    running = built;
+    if (settings.tun) {
       // TUN 在网络层接管全局流量,不走系统代理;清掉可能残留的系统代理
-      await setSystemProxy(false, PROXY_SERVER).catch(() => {});
+      await setSystemProxy(false, proxyServer()).catch(() => {});
     } else {
-      await setSystemProxy(true, PROXY_SERVER);
+      await setSystemProxy(true, proxyServer());
     }
-
-    connectionStore.set({
-      status: "on",
-      activeNodeId: node.id,
-      message: tun
-        ? `TUN 模式已生效 · 全局流量 › ${node.name}`
-        : `系统代理已生效 · ${PROXY_SERVER} › ${node.name}`,
-    });
-    measureLatency(node);
+    resetTraffic();
+    connectionStore.set({ status: "on", since: Date.now(), tun: settings.tun });
+    if (report.dropped.length) {
+      notify(`${report.dropped.length} 个节点内核不接受,已跳过:${report.dropped[0]}`, "error");
+    }
+    void checkHealth();
+    // 启动时 GitHub 可能直连不通,连上后经代理再查一次
+    if (!updateChecked) {
+      updateChecked = true;
+      void checkUpdate(true, `http://${proxyServer()}`);
+    }
   } catch (e) {
-    // 清理半成品状态,避免留下坏代理导致断网
-    await Promise.allSettled([setSystemProxy(false, PROXY_SERVER), stopKernel()]);
-    connectionStore.set({
-      status: "fault",
-      activeNodeId: null,
-      latency: null,
-      message: `启动失败:${errText(e)}`,
-    });
+    running = null;
+    await Promise.allSettled([setSystemProxy(false, proxyServer()), stopKernel()]);
+    connectionStore.set({ ...OFF, status: "fault", error: errText(e) });
   }
 }
 
-/** 停止:清系统代理 → 杀内核 */
 export async function disconnect(): Promise<void> {
-  connectionStore.set({ status: "connecting", message: "正在断开 …" });
-  const results = await Promise.allSettled([
-    setSystemProxy(false, PROXY_SERVER),
-    stopKernel(),
-  ]);
-  const failed = results.filter((r) => r.status === "rejected");
-  connectionStore.set({
-    status: "off",
-    activeNodeId: null,
-    latency: null,
-    message: failed.length
-      ? `已断开(部分清理失败:${errText((failed[0] as PromiseRejectedResult).reason)})`
-      : "已断开 · 内核进程已停止,系统代理已清除",
-  });
+  connectionStore.set({ status: "connecting" });
+  running = null;
+  const results = await Promise.allSettled([setSystemProxy(false, proxyServer()), stopKernel()]);
+  const failed = results.find((r) => r.status === "rejected") as PromiseRejectedResult | undefined;
+  connectionStore.set(OFF);
+  if (failed) notify(`断开时清理失败:${errText(failed.reason)}`, "error");
 }
 
-/** 连上后测一次到节点的 TCP 延迟,更新顶栏数码管 */
-async function measureLatency(node: Node) {
+/** 配置改动后重连,让新配置生效 */
+export async function reconnectIfOnline(): Promise<void> {
+  if (connectionStore.get().status === "on") await connect();
+}
+
+/** 经当前节点访问测试网址。端口通了不代表节点能用,这一步才算真的连上 */
+export async function checkHealth(): Promise<void> {
+  connectionStore.set({ health: "checking" });
   try {
-    const ms = await tcpPing(node.server, node.port, 3000);
-    const s = connectionStore.get();
-    if (s.status === "on" && s.activeNodeId === node.id) {
-      connectionStore.set({ latency: ms });
-      nodesStore.set((ns) => ({ pings: { ...ns.pings, [node.id]: ms } }));
+    const ms = await delayOf("proxy", 8000);
+    connectionStore.set({ health: "ok", latency: ms });
+    const selected = settingsStore.get().selected;
+    if (selected) {
+      setPing(selected, ms);
     }
   } catch {
-    /* 测速失败不影响连接状态 */
+    if (connectionStore.get().status === "on") {
+      connectionStore.set({ health: "bad", latency: null });
+    }
   }
 }
 
-/** 监听 Rust 侧事件:内核意外退出 / 内核日志 */
+async function delayOf(tag: string, timeout: number): Promise<number> {
+  const query = `url=${encodeURIComponent(DELAY_TEST_URL)}&timeout=${timeout}`;
+  const text = await kernelApi(
+    "GET",
+    `/proxies/${encodeURIComponent(tag)}/delay?${query}`,
+    undefined,
+    timeout + 1000,
+  );
+  return JSON.parse(text).delay as number;
+}
+
+async function putSelector(tag: string, member: string) {
+  await kernelApi("PUT", `/proxies/${encodeURIComponent(tag)}`, { name: member });
+}
+
+/** 选节点。已连接时热切换,不断开内核 */
+export async function chooseNode(id: string): Promise<void> {
+  const settings = settingsStore.get();
+  const groupChoices = { ...settings.groupChoices };
+  const primary = settings.activeRules
+    ? profilesStore.get().rules[settings.activeRules]?.primary
+    : null;
+  if (primary) delete groupChoices[primary];
+  updateSettings({ selected: id, groupChoices });
+  if (connectionStore.get().status !== "on") return;
+  const tag = running?.tags[id];
+  if (!tag) {
+    await connect(); // 订阅刷新后新出现的节点,不在运行中的配置里
+    return;
+  }
+  try {
+    await putSelector("proxy", tag);
+    await checkHealth();
+  } catch (e) {
+    notify(`切换节点失败:${errText(e)}`, "error");
+  }
+}
+
+/** 选策略组成员。已连接时热切换 */
+export async function chooseGroupMember(group: string, member: string): Promise<void> {
+  const settings = settingsStore.get();
+  const primary = settings.activeRules
+    ? profilesStore.get().rules[settings.activeRules]?.primary
+    : null;
+  const patch: Partial<typeof settings> = {
+    groupChoices: { ...settings.groupChoices, [group]: member },
+  };
+  if (group === primary) patch.selected = null;
+  updateSettings(patch);
+  if (connectionStore.get().status !== "on") return;
+  const groupTag = running?.groupTags[group];
+  const tag = running?.memberTags[member];
+  if (!groupTag || !tag) {
+    await connect(); // 刷新订阅后改了分组,运行中的配置里没有
+    return;
+  }
+  try {
+    await putSelector(groupTag, tag);
+  } catch (e) {
+    notify(`切换失败:${errText(e)}`, "error");
+  }
+}
+
+/** 策略组当前选中的成员,自动测速组的结果只有内核知道 */
+export async function fetchGroupStates(): Promise<Record<string, string>> {
+  if (!running) return {};
+  const text = await kernelApi("GET", "/proxies");
+  const { proxies } = JSON.parse(text) as { proxies: Record<string, { now?: string }> };
+  const states: Record<string, string> = {};
+  for (const [group, tag] of Object.entries(running.groupTags)) {
+    const now = proxies[tag]?.now;
+    if (!now) continue;
+    const member = Object.entries(running.memberTags).find(([, t]) => t === now);
+    states[group] = member?.[0] ?? now;
+  }
+  return states;
+}
+
+/** 切换规则 / 全局。已连接时热切换 */
+export async function setMode(mode: ProxyMode): Promise<void> {
+  updateSettings({ mode });
+  if (connectionStore.get().status !== "on") return;
+  try {
+    await kernelApi("PATCH", "/configs", { mode });
+  } catch (e) {
+    notify(`切换模式失败:${errText(e)}`, "error");
+  }
+}
+
+/** 开关 TUN。已连接时立即用新方式重连 */
+export async function setTun(on: boolean): Promise<void> {
+  await saveSettingsNow({ tun: on });
+  await reconnectIfOnline();
+}
+
+// ---- 测速 ----
+
+async function runPool<T>(items: T[], size: number, task: (item: T) => Promise<void>) {
+  const queue = [...items];
+  await Promise.all(
+    Array.from({ length: Math.min(size, queue.length) }, async () => {
+      while (queue.length) await task(queue.shift()!);
+    }),
+  );
+}
+
+/**
+ * 已连接时经内核访问测试网址,结果是真实可用的延迟;
+ * 未连接时只能测到服务器的 TCP 连接,节点能不能用要连上才知道。
+ * TUN 下 TCP 连接被内核就地接管,测出来的数字没有意义,所以必须走内核。
+ */
+export async function testDelays(): Promise<void> {
+  if (pingsStore.get().testing) return;
+  const nodes = allNodes().filter((n) => !unsupportedReason(n));
+  const live = connectionStore.get().status === "on" ? running : null;
+  pingsStore.set({ pings: {}, testing: true, method: live ? "real" : "tcp" });
+  try {
+    await runPool(nodes, live ? 8 : 12, async (node: Node) => {
+      const tag = live?.tags[node.id];
+      try {
+        const ms = live
+          ? tag
+            ? await delayOf(tag, 5000)
+            : undefined
+          : await tcpPing(node.server, node.port, 3000);
+        setPing(node.id, ms);
+      } catch {
+        setPing(node.id, "timeout");
+      }
+    });
+  } finally {
+    pingsStore.set({ testing: false });
+  }
+}
+
+/** 监听 Rust 侧事件:内核意外退出 / 内核日志 / 流量 */
 export async function initConnectionEvents(): Promise<void> {
   await listen<{ code: number | null; lastLog: string }>("kernel-exit", (ev) => {
     const s = connectionStore.get();
     if (s.status === "on" || s.status === "connecting") {
+      running = null;
       connectionStore.set({
+        ...OFF,
         status: "fault",
-        activeNodeId: null,
-        latency: null,
-        message: `内核意外退出(code=${ev.payload.code ?? "?"})${
-          ev.payload.lastLog ? " · " + ev.payload.lastLog : ""
+        error: `内核意外退出(退出码 ${ev.payload.code ?? "未知"})${
+          ev.payload.lastLog ? ":" + ev.payload.lastLog : ""
         }`,
       });
     }
   });
-  await listen<string>("kernel-log", (ev) => {
-    console.log("[sing-box]", ev.payload);
+  await listen<string>("kernel-log", (ev) => pushLog(ev.payload));
+  await listen<{ up: number; down: number }>("kernel-traffic", (ev) => {
+    pushTraffic(ev.payload.up, ev.payload.down);
   });
 }
 

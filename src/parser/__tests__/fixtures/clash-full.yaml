@@ -1,0 +1,127 @@
+# 覆盖各协议和规则类型的订阅样例,凭据都是虚构的
+port: 7890
+mode: Rule
+proxies:
+  - {name: 🇭🇰 香港01 | IEPL, server: hk.example.com, port: 20001, type: ss, cipher: aes-256-gcm, password: "0123456", udp: true}
+  - {name: 🇯🇵 日本01 | x2, server: jp.example.com, port: 20002, type: vmess, uuid: b831381d-6324-4d53-ad4f-8cda48b30811, alterId: 1, cipher: auto, tls: false, skip-cert-verify: false, udp: true}
+  - name: VMess WS
+    type: vmess
+    server: ws.example.com
+    port: 443
+    uuid: b831381d-6324-4d53-ad4f-8cda48b30811
+    alterId: 0
+    cipher: auto
+    tls: true
+    servername: cdn.example.com
+    network: ws
+    ws-opts:
+      path: /ray
+      headers:
+        Host: cdn.example.com
+  - {name: VMess gRPC, type: vmess, server: g.example.com, port: 443, uuid: b831381d-6324-4d53-ad4f-8cda48b30811, alterId: 0, cipher: auto, tls: true, network: grpc, grpc-opts: {grpc-service-name: svc}}
+  - {name: VMess H2, type: vmess, server: h2.example.com, port: 443, uuid: b831381d-6324-4d53-ad4f-8cda48b30811, alterId: 0, cipher: auto, tls: true, network: h2, h2-opts: {host: [a.example.com], path: /h2}}
+  - {name: VMess HTTP, type: vmess, server: h.example.com, port: 80, uuid: b831381d-6324-4d53-ad4f-8cda48b30811, alterId: 0, cipher: auto, network: http, http-opts: {method: GET, path: [/], headers: {Host: [a.example.com]}}}
+  - name: VLESS Reality
+    type: vless
+    server: r.example.com
+    port: 443
+    uuid: b831381d-6324-4d53-ad4f-8cda48b30811
+    flow: xtls-rprx-vision
+    tls: true
+    servername: www.microsoft.com
+    client-fingerprint: chrome
+    reality-opts:
+      public-key: Z84J2IelR9ch3k8VtlVhhs5ycBUlXA7wHBWcBrjqnAw
+      short-id: 6ba85179e30d4fc2
+  - {name: VLESS 升级, type: vless, server: u.example.com, port: 443, uuid: b831381d-6324-4d53-ad4f-8cda48b30811, tls: true, network: ws, ws-opts: {path: /up, v2ray-http-upgrade: true}}
+  - {name: Trojan, type: trojan, server: t.example.com, port: 443, password: secret, sni: t.example.com, alpn: [h2, http/1.1], skip-cert-verify: true}
+  - {name: Trojan WS, type: trojan, server: t2.example.com, port: 443, password: secret, network: ws, ws-opts: {path: /tj}}
+  - {name: SS 混淆, type: ss, server: o.example.com, port: 8388, cipher: chacha20-ietf-poly1305, password: pw, plugin: obfs, plugin-opts: {mode: http, host: bing.com}}
+  - {name: SS2022, type: ss, server: s2.example.com, port: 8388, cipher: 2022-blake3-aes-128-gcm, password: ZmFrZWZha2VmYWtlZmFrZQ==}
+  - {name: Hy2, type: hysteria2, server: hy.example.com, port: 443, ports: 20000-30000, password: pw, up: 30 Mbps, down: 200 Mbps, obfs: salamander, obfs-password: ob, sni: hy.example.com}
+  - {name: Hy1, type: hysteria, server: hy1.example.com, port: 443, auth-str: pw, up: 30, down: 100, sni: hy1.example.com}
+  - {name: TUIC, type: tuic, server: tu.example.com, port: 443, uuid: b831381d-6324-4d53-ad4f-8cda48b30811, password: pw, congestion-controller: bbr, udp-relay-mode: native, alpn: [h3], sni: tu.example.com}
+  - {name: AnyTLS, type: anytls, server: any.example.com, port: 443, password: pw, sni: any.example.com}
+  - {name: SOCKS, type: socks5, server: 192.0.2.1, port: 1080, username: u, password: p}
+  - {name: HTTP代理, type: http, server: 192.0.2.2, port: 8080, username: u, password: p, tls: true}
+  - {name: 坏加密, type: ss, server: bad.example.com, port: 443, cipher: rot13, password: x}
+  - {name: SSR节点, type: ssr, server: ssr.example.com, port: 443, cipher: aes-256-cfb, password: x, obfs: plain, protocol: origin}
+  - {name: WG节点, type: wireguard, server: wg.example.com, port: 51820, private-key: x, public-key: y}
+  - {name: 缺密码, type: trojan, server: nopw.example.com, port: 443}
+proxy-groups:
+  - name: 🔰 选择节点
+    type: select
+    proxies: [♻️ 自动选择, 🇭🇰 香港01 | IEPL, 🇯🇵 日本01 | x2, Trojan, 坏加密, DIRECT]
+  - name: ♻️ 自动选择
+    type: url-test
+    url: http://www.gstatic.com/generate_204
+    interval: 300
+    tolerance: 100
+    proxies: [🇭🇰 香港01 | IEPL, 🇯🇵 日本01 | x2]
+  - name: 🌏 国内媒体
+    type: select
+    proxies: [DIRECT, 🔰 选择节点]
+  - name: 🛑 拦截广告
+    type: select
+    proxies: [REJECT, DIRECT]
+  - name: 🐟 漏网之鱼
+    type: select
+    proxies: [🔰 选择节点, DIRECT]
+  - name: 故障转移
+    type: fallback
+    url: http://www.gstatic.com/generate_204
+    interval: 300
+    include-all: true
+    filter: "(?i)vmess"
+  - {name: 中转, type: relay, proxies: [Trojan, Hy2]}
+rule-providers:
+  telegram:
+    type: http
+    behavior: classical
+    format: text
+    url: https://example.com/telegram.list
+    path: ./telegram.list
+  private:
+    type: http
+    behavior: domain
+    url: https://example.com/private.yaml
+    path: ./private.yaml
+  cncidr:
+    type: http
+    behavior: ipcidr
+    url: https://example.com/cncidr.yaml
+    path: ./cncidr.yaml
+  binary:
+    type: http
+    behavior: domain
+    format: mrs
+    url: https://example.com/binary.mrs
+    path: ./binary.mrs
+rules:
+  - DOMAIN,direct.example.com,DIRECT
+  - DOMAIN-SUFFIX,bilibili.com,🌏 国内媒体
+  - DOMAIN-KEYWORD,adservice,🛑 拦截广告
+  - DOMAIN-SUFFIX,doubleclick.net,🛑 拦截广告
+  - DOMAIN-REGEX,^ads?\.example\.,🛑 拦截广告
+  - IP-CIDR,8.8.8.8/32,🔰 选择节点,no-resolve
+  - IP-CIDR6,2001:4860::/32,🔰 选择节点,no-resolve
+  - DST-PORT,123,DIRECT
+  - DST-PORT,6881-6889/51413,DIRECT
+  - PROCESS-NAME,steam.exe,DIRECT
+  - NETWORK,UDP,🔰 选择节点
+  - AND,((DOMAIN-SUFFIX,example.org),(NETWORK,UDP)),REJECT
+  - OR,((DST-PORT,25),(DST-PORT,465)),REJECT
+  - NOT,((DOMAIN,keep.example.com)),🔰 选择节点
+  - RULE-SET,telegram,🔰 选择节点
+  - RULE-SET,private,DIRECT
+  - RULE-SET,binary,DIRECT
+  - GEOSITE,cn,🌏 国内媒体
+  - GEOSITE,google,🔰 选择节点
+  - GEOIP,LAN,DIRECT
+  - IP-CIDR,91.108.4.0/22,🔰 选择节点
+  - RULE-SET,cncidr,🌏 国内媒体
+  - GEOIP,US,🔰 选择节点
+  - GEOIP,CN,🌏 国内媒体
+  - IP-ASN,13335,DIRECT
+  - DOMAIN,bad target.example,不存在的组
+  - MATCH,🐟 漏网之鱼

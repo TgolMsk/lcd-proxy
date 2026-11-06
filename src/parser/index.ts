@@ -2,6 +2,7 @@ import { Node } from "./types";
 import { parseVless } from "./vless";
 import { parseShadowsocks } from "./shadowsocks";
 import { parseShadowsocksR } from "./shadowsocksr";
+import { parseExtraLink } from "./links";
 
 export type { Node, Protocol } from "./types";
 
@@ -12,6 +13,8 @@ export function parseUri(uri: string): Node {
   if (lower.startsWith("vless://")) return parseVless(s);
   if (lower.startsWith("ss://")) return parseShadowsocks(s);
   if (lower.startsWith("ssr://")) return parseShadowsocksR(s);
+  const extra = s.includes("://") ? parseExtraLink(s) : null;
+  if (extra) return extra;
   throw new Error(`不支持的协议:${s.slice(0, 16)}…`);
 }
 

@@ -8,9 +8,9 @@ import { relaunch } from "@tauri-apps/plugin-process";
  * 产物由 CI 用签名私钥签名,客户端用内置公钥校验,防止被篡改。
  */
 
-/** 检查更新:有新版返回 Update 句柄,无则 null */
-export async function checkForUpdate(): Promise<Update | null> {
-  const update = await check();
+/** 检查更新:有新版返回 Update 句柄,无则 null。GitHub 直连不通时经本地代理访问 */
+export async function checkForUpdate(proxy?: string): Promise<Update | null> {
+  const update = await check(proxy ? { proxy } : undefined);
   return update ?? null;
 }
 

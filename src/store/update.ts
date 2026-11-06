@@ -35,11 +35,11 @@ let pending: Update | null = null;
  * 检查更新。
  * silent=true(启动时后台静默):无新版/出错都不弹提示,只在有新版时才亮横幅。
  */
-export async function checkUpdate(silent = false): Promise<void> {
-  if (store.get().status === "downloading") return;
+export async function checkUpdate(silent = false, proxy?: string): Promise<void> {
+  if (store.get().status === "downloading" || store.get().status === "available") return;
   if (!silent) store.set({ status: "checking", message: "正在检查更新 …" });
   try {
-    const update = await checkForUpdate();
+    const update = await checkForUpdate(proxy);
     if (update) {
       pending = update;
       store.set({
