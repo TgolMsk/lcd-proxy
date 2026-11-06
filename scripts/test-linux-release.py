@@ -31,6 +31,27 @@ def until(fn, timeout=35):
         time.sleep(.25)
     raise AssertionError('Timed out: ' + str(fn))
 
+def snapshot(name):
+    import gi
+    gi.require_version('Gdk', '3.0')
+    from gi.repository import Gdk
+    screen = Gdk.get_default_root_window()
+    picture = Gdk.pixbuf_get_from_window(screen, 0, 0, screen.get_width(), screen.get_height())
+    picture.savev(str(root/name), 'png', [], [])
+
+def describe(obj):
+    try:
+        line = f'{obj.getRoleName()}: {obj.name or ""}'
+    except Exception as error:
+        return f'<unreadable: {error}>'
+    try:
+        content = obj.queryText().getText(0, -1)
+        if content:
+            line += f' | text: {content}'
+    except Exception:
+        pass
+    return line
+
 def tree():
     stack = [pyatspi.Registry.getDesktop(0)]
     result = []
@@ -142,12 +163,7 @@ try:
     upstream_log = (root/'upstream.log').read_text()
     assert 'shadowsocks' in upstream_log and str(http_port) in upstream_log
     print('PASS: actual HTTP/SOCKS5 forwarding via Shadowsocks upstream', flush=True)
-    import gi
-    gi.require_version('Gdk', '3.0')
-    from gi.repository import Gdk
-    screen = Gdk.get_default_root_window()
-    screenshot = Gdk.pixbuf_get_from_window(screen, 0, 0, screen.get_width(), screen.get_height())
-    screenshot.savev(str(root/'desktop-connected.png'), 'png', [], [])
+    snapshot('desktop-connected.png')
     click(until(lambda: find('断开代理')))
     until(lambda: mode() == "'auto'")
     assert upstream.poll() is None
@@ -156,6 +172,11 @@ try:
     assert app.wait(timeout=12) in (0, -signal.SIGTERM)
     assert mode() == "'auto'"
     print('PASS: installed client exits cleanly', flush=True)
+except BaseException:
+    # 这个门禁只能在 CI 跑,失败现场要随产物带回来
+    (root/'failure-tree.txt').write_text('\n'.join(describe(a) for a in tree()))
+    snapshot('failure.png')
+    raise
 finally:
     server.shutdown()
     subprocess.run(['sudo', 'ip', 'addr', 'del', f'{probe_host}/32', 'dev', 'lo'], check=False)

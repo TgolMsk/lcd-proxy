@@ -30,10 +30,12 @@ export async function flushWrites(): Promise<void> {
   const jobs = [...pending.entries()];
   pending.clear();
   await Promise.all(
-    jobs.map(([name, serialize]) =>
-      storeWrite(name, serialize()).catch((e) => {
+    jobs.map(async ([name, serialize]) => {
+      try {
+        await storeWrite(name, serialize());
+      } catch (e) {
         notify(`保存 ${name} 失败:${e}`, "error");
-      }),
-    ),
+      }
+    }),
   );
 }

@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Node } from "../../parser/types";
 
 /** 内存里的数据目录,行为和 Rust 侧的 store_* 命令一致 */
@@ -30,12 +30,16 @@ function v1Node(name: string, server: string): Node {
   return { id: `n-${name}`, name, protocol: "shadowsocks", server, port: 443, raw: "ss://x" };
 }
 
+/** 每次 load 都是一份新模块,防抖定时器各管各的 */
+const loaded: { flushWrites: () => Promise<void> }[] = [];
+
 async function load() {
   vi.resetModules();
   const profiles = await import("../profiles");
   const settings = await import("../settings");
   const notice = await import("../notice");
   const persist = await import("../persist");
+  loaded.push(persist);
   return { ...profiles, ...settings, ...notice, ...persist };
 }
 
@@ -66,6 +70,11 @@ beforeEach(() => {
     disk.set(next, disk.get(name)!);
     disk.delete(name);
   });
+});
+
+// 写盘定时器留到下一个用例会写进它的数据,测试环境销毁后触发还会让整轮测试失败
+afterEach(async () => {
+  await Promise.all(loaded.splice(0).map((persist) => persist.flushWrites()));
 });
 
 describe("旧版数据迁移", () => {
