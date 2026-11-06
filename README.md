@@ -1,15 +1,17 @@
-# LCD Proxy · 现代仪表盘风订阅式代理客户端
+# LCD Proxy · 订阅式代理客户端
 
-> **打开客户端 → 在列表里选一个节点 → 点击启动 → 系统代理生效。**
-> 视觉:近黑→靛紫渐变 + 毛玻璃卡片 + 薄荷绿强调(深色默认,可切浅色)。内核:sing-box。框架:Tauri 2。
-> 视觉风格参考 [lan-send/ui-style-reference](https://github.com/TgolMsk/lan-send/blob/main/docs/ui-style-reference.md)。
+> **添加订阅 → 选节点 → 连接。** 订阅里的策略组和分流规则直接生效。
+> 内核:sing-box。框架:Tauri 2。
 
-- 支持 **VLESS(TLS/WS/gRPC/Reality)、Shadowsocks(SIP002 + 旧格式)、ShadowsocksR** 分享链接
-- 订阅支持两种格式,自动识别:**① base64/明文分享链接列表**;**② sing-box 完整配置 profile**(如 Surge Config Center,只抽取节点、不套用其路由规则)
-- 手动粘贴导入(分享链接或 profile JSON 均可),节点存本地 JSON
-- **系统代理模式**(Windows 注册表 / Linux GNOME、Cinnamon 设置)与 **TUN 全局模式**,一键切换
-- 启动/切换自动重启内核,退出自动清理
-- TCP 连接测速、系统托盘(启动/停止/退出)、单实例
+- **节点协议**:VLESS(TLS/WS/gRPC/Reality)、VMess、Trojan、Shadowsocks、Hysteria、Hysteria2、TUIC、AnyTLS、SOCKS、HTTP
+- **订阅格式**自动识别:分享链接列表(base64 或明文)、Clash / mihomo 配置(含策略组、规则、`rule-providers`、`proxy-providers`)、sing-box 配置(只取节点)
+- **多份订阅**:分别更新,按订阅声明的间隔自动刷新,显示流量和到期时间,选一份作为规则来源
+- **分流**:订阅规则、内置的绕过大陆规则、优先级最高的自定义规则;订阅没有国内规则时补上国内直连(可关闭)
+- **系统代理**(Windows 注册表 / Linux GNOME、Cinnamon 设置)与 **TUN** 一键切换
+- 运行中切换节点、策略组和规则/全局模式,不重启内核
+- 连上后测速走内核,测到的是经节点的实际延迟;未连接时只测 TCP 连接
+- 流量图、内核日志页、系统托盘、单实例
+- 主程序崩溃时内核一起退出,下次启动恢复原来的系统代理
 
 ## 技术栈
 
@@ -17,15 +19,16 @@
 |----|------|
 | 框架 | Tauri 2.x(Rust 后端 + React/TS/Vite 前端) |
 | 内核 | sing-box(sidecar 方式打包,`src-tauri/binaries/`) |
-| UI | 纯 CSS 实现现代仪表盘风(Inter 可变字体本地打包;渐变背景 + 毛玻璃卡片 + 薄荷绿强调;深/浅色) |
-| 存储 | 应用数据目录下 `state.json` / `config.json` |
+| UI | 纯 CSS,浅色和深色两套主题 |
+| 规则数据 | sing-box 二进制规则集,随安装包发布(`src-tauri/resources/rules/`) |
+| 存储 | 应用数据目录下的 `settings.json`、`profiles.json`、`profiles/`,见[数据存储](#数据存储) |
 | 系统代理 | Windows 注册表 + WinINet;Linux GNOME/Cinnamon GSettings,断开时恢复原设置 |
 
 ## Linux Mint 22.3 Cinnamon 64 位
 
 提供 **x86_64 `.deb` 安装包与 `.AppImage` 便携包**,内置 sing-box 1.12.4。
 
-[下载 Linux 安装构件](https://github.com/TgolMsk/lcd-proxy/releases/tag/v1.0.0)。
+[下载 Linux 安装构件](https://github.com/TgolMsk/lcd-proxy/releases/tag/v1.1.0)。
 也可在 Linux 终端运行构件安装器,直接下载、校验 SHA-256 并安装:
 
 ```sh
@@ -35,7 +38,7 @@ bash install-linux.sh
 
 ```sh
 # 推荐安装方式:在安装包所在目录运行
-sudo apt install ./lcd-proxy_1.0.0_amd64.deb
+sudo apt install ./lcd-proxy_1.1.0_amd64.deb
 # 在应用菜单打开 LCD Proxy,导入订阅/节点后点击「启动」
 ```
 
@@ -53,7 +56,7 @@ CLI 程序若不读取桌面代理,可使用 `HTTPS_PROXY=http://127.0.0.1:10808
 
 ```sh
 npm install
-npm test          # 37 个解析器/订阅/配置生成器单元测试
+npm test          # 解析器、规则、配置生成、存储的单元测试
 npm run tauri dev # 起开发窗口(UI、解析、订阅逻辑均可在 Mac 上调)
 ```
 
@@ -67,8 +70,8 @@ npm run tauri dev # 起开发窗口(UI、解析、订阅逻辑均可在 Mac 上�
 从 **1.0.0** 开始,Windows 与 Linux 使用同一版本号、同一个 `vX.Y.Z` 标签与 Release。
 
 1. 同步 `package.json`、`package-lock.json`、Tauri 配置、Cargo 清单/锁文件和 Linux 安装器版本。
-2. 运行 `node scripts/check-version.mjs v1.0.0`,提交并推送代码。
-3. 推送标签:`git tag v1.0.0 && git push origin v1.0.0`。
+2. 运行 `node scripts/check-version.mjs v1.1.0`,提交并推送代码。
+3. 推送标签:`git tag v1.1.0 && git push origin v1.1.0`。
 4. `Release (Windows + Linux)` 分别构建 Windows x64 `.exe`/`.msi` 与 Linux x86_64 `.deb`/`.AppImage`。
 5. 两个平台成功后验证 Windows 更新签名,生成完整 `SHA256SUMS`,将安装器、更新清单和各平台安装包统一公开发布。
 
@@ -115,35 +118,55 @@ CI 下载的 sing-box 1.12.x 启动 SSR 节点时,内核会报 `unknown outbound
 
 ## 两种代理模式
 
-工具栏 `TUN` 按钮切换,状态持久化。
+在「连接」页的「接管」里切换,选择会保存。
 
 | 模式 | 原理 | 权限 | 适用 |
 |------|------|------|------|
 | **系统代理**(默认) | Windows 写注册表,Linux 写 GNOME/Cinnamon GSettings,内核起 `mixed` 入站 | 普通用户 | 浏览器等遵循系统代理的程序 |
-| **TUN 全局** | 内核建虚拟网卡 + `auto_route` 接管流量(含不认系统代理的程序) | Windows UAC / Linux Polkit 授权内核 | 全局代理、游戏/命令行工具 |
+| **TUN** | 内核建虚拟网卡 + `auto_route` 接管流量(含不认系统代理的程序) | Windows 管理员 / Linux Polkit 授权内核 | 全局代理、游戏、命令行工具 |
 
-TUN 模式的 sing-box 配置内置了 **DNS 处理**(劫持所有 DNS 查询到内置解析器:远端 DoH 走代理、节点服务器域名走直连解析)与**局域网直连**规则,并把 `strict_route` 关掉 —— 否则 TUN 吞掉全部流量后 DNS 无法解析,会表现为「整机断网」。
+TUN 配置的几个要点,改动前请先看清原因:
 
-**Windows TUN 权限**:点 `TUN` 开启时,若当前非管理员,会弹 UAC 请求授权并**以管理员身份重启应用**(状态已先落盘,重启后 TUN 保持开启);授权取消则自动回退。开启 TUN 后启动连接,不再设置系统代理,由虚拟网卡接管。
+- **`strict_route` 必须开。** Windows 的 DNS 客户端会同时问所有网卡,不拦住物理网卡的 53 端口,拿到的就是被污染的地址。它同时会拦掉全部 IPv6,所以默认只接管 IPv4、只解析 A 记录,有 AAAA 记录的网站不会因为优先连 IPv6 而打不开。
+- **直连 DNS 必须写明地址**(默认 `223.5.5.5`,设置页可改),不能用 `type: local`。TUN 下系统 DNS 会绕回内核;Windows 的虚拟网卡还带着失效的 `fec0::` 地址,每个新域名要多等 5 秒。
+- **局域网网段不进 TUN**,打印机发现和组播都走物理网卡。
+- 已知限制:`*.lan` 这类靠路由器解析的内网域名在 TUN 下解析不了,直接用 IP 访问。
+
+**Windows TUN 权限**:开启 TUN 后点连接时,如果当前不是管理员,应用会请求授权并以管理员身份重启,设置已先写盘,重启后接着连接。取消授权时这次连接失败并给出提示。Wintun 驱动已内嵌在 sing-box 的 Windows 二进制里。
 
 **Linux TUN 权限**:安装 `.deb` 后,通过 Polkit 仅为内核授予网络 capabilities,图形界面保持普通用户身份。AppImage 使用桌面代理。具体说明见 [Linux 使用与构建](docs/linux.md)。
 
-> 实现细节:提权用 `ShellExecuteW(runas)` 重启自身,原(非管理员)实例在干净断开后硬退出、交接单实例锁给提权实例。TUN 需要 Wintun 驱动,近版 sing-box 的 Windows 二进制已内嵌。**这些只能在真 Windows 上验证**(见下方"未在 Windows 上验证的部分")。
+## 订阅格式
 
-## 订阅格式(自动识别两种)
+1. **分享链接列表**:整体 base64 或明文多行的分享链接。
+2. **Clash / mihomo 配置**:导入节点、策略组(`select`、`url-test`、`fallback`、`load-balance`)和规则,`rule-providers`、`proxy-providers` 会下载展开。`GEOIP,CN`、`GEOSITE,cn` 等用安装包内置的规则集。`relay` 组和 `mrs` 规则集不支持,规则页会列出跳过了什么。
+3. **sing-box 完整配置**:只抽取节点,忽略其中的分组和路由。
 
-1. **分享链接列表**:整体 base64 或明文多行 `vless://` / `ss://` / `ssr://`(机场最常见)。
-2. **sing-box 完整配置 profile**:订阅返回一份完整 sing-box 配置 JSON(如 Surge Config Center 的 `/api/sing-box/profile/...`)。本工具会从其 `outbounds` 里**抽取真实代理节点**(vless / shadowsocks / shadowsocksr),**忽略** profile 自带的 selector 策略分组、route 路由规则、tun 入站等 —— 仍按本工具"选一个节点 → 生成自己的配置"的模型工作。也就是说:**profile 里的分流规则不会生效**,只借用它的节点。
+粘贴到「订阅 → 导入」同样可用:Clash 配置保留分组和规则,其余进本地节点。
 
-> 粘贴 profile JSON 到"导入"框同样可用。若你需要的正是 profile 里那套分流规则,本工具当前不支持(需要另一套"整份配置直通"的实现)。
+### 规则的优先级
 
-## 未在 Windows 上验证的部分
+自定义规则 > 订阅规则 > 国内直连兜底 > `MATCH`。
 
-本项目在 macOS 上开发,以下逻辑已通过**隔离交叉编译**(`x86_64-pc-windows-msvc` 目标)确认能编译,且生成的 sing-box 配置已用真实 sing-box 1.12.4 二进制 `check` 通过,但**运行期行为必须在真 Windows 上实测**:
+- **主策略组**:从 `MATCH` 的目标沿每组的默认成员往下走,路上最后一个含节点的 `select` 组。节点页的选择落在这个组,其他组各选各的。
+- **国内直连兜底**:只在订阅没有 `GEOIP,CN` 规则、兜底也不是直连时生效。有些配置中心导出的规则只列海外服务,没有这一层时国内网站全部绕节点。可以在规则页关闭。
+- **直连用途的组**(组名含「直连」「国内」或以「中国」结尾)如果把节点排在 `DIRECT` 前面,默认值改回直连。
+- 同名节点出现在多份配置里时,策略组用规则来源那份订阅自己的节点。
 
-- TUN 虚拟网卡创建、`auto_route` 生效、Wintun 驱动可用性
-- UAC 提权重启与单实例锁交接的时序(极少数情况下若提权实例启动过快可能与旧实例抢锁)
-- 注册表系统代理写入与 `InternetSetOption` 广播刷新
+## 数据存储
+
+应用数据目录(Windows 是 `%APPDATA%\com.lcdproxy.app`):
+
+| 文件 | 内容 |
+|------|------|
+| `settings.json` | 设置、当前节点、策略组选择、自定义规则 |
+| `profiles.json` | 配置列表:链接、更新时间、流量、到期时间 |
+| `profiles/<id>.nodes.json` | 这份配置的节点 |
+| `profiles/<id>.rules.json` | 这份配置的策略组和规则,用到时才读 |
+| `state.v1.json` | 旧版数据的留档,升级后不再使用 |
+| `config.json`、`kernel.log` | 交给内核的配置和内核日志 |
+
+写入先落临时文件再原子替换,并保留一份 `.bak`。主文件损坏时自动用备份恢复并提示;主文件和备份都读不出来时停止写入,不用空数据覆盖。订阅更新失败时保留旧节点和规则。
 
 ## 错误处理约定
 
@@ -160,30 +183,36 @@ TUN 模式的 sing-box 配置内置了 **DNS 处理**(劫持所有 DNS 查询到
 ```
 src-tauri/
   src/main.rs        # Tauri 入口:命令注册、托盘、退出清理
-  src/kernel.rs      # sing-box 进程拉起/杀死/意外退出监控
+  src/kernel.rs      # sing-box 进程管理、Clash API、流量统计
+  src/fetch.rs       # 下载订阅和规则,失败后经代理重试
   src/sysproxy.rs    # Windows 注册表系统代理 + WinINet 广播
   src/sysproxy_linux.rs # Linux GNOME/Cinnamon 代理备份与恢复
+  src/elevate.rs     # Windows 提权重启
   src/elevate_linux.rs # Linux 内核网络权限授权
-  src/config.rs      # 配置/状态文件落盘、端口提取
+  src/config.rs      # 原子写入、备份恢复、端口提取
+  resources/rules/   # 内置规则集,来源见其中 README
   binaries/          # sing-box sidecar(见其中 README)
 src/
-  parser/            # vless / ss / ssr 三个 URI 解析器 + 单元测试
-  config/singbox.ts  # buildSingBoxConfig:节点 → sing-box 配置
-  api/               # 订阅拉取、Rust 命令封装
-  store/             # 节点列表 / 连接状态(useSyncExternalStore)
-  ui/                # StatusHeader / NodeList / ControlBar … + theme.css
+  parser/            # 分享链接、Clash、sing-box 配置解析
+  rules/             # Clash 规则 → sing-box 规则
+  config/singbox.ts  # 节点 + 规则 → sing-box 配置
+  api/               # 订阅拉取、Rust 命令封装、自更新
+  store/             # 配置、设置、连接状态、流量、日志
+  ui/                # 连接 / 节点 / 规则 / 订阅 / 日志 / 设置六个页面 + theme.css
 scripts/build-linux.sh # Linux 内核下载、校验、构建与产物归档
 scripts/install-linux.sh # 下载或使用本地构件,校验后通过 apt 安装
+scripts/test-linux-release.py # 发布门禁:真实安装包的界面和代理冒烟测试
 ```
 
 ## 界面速览
 
-- 顶栏:薄荷绿品牌标 + 深/浅色切换 + 版本/检查更新
-- 连接状态卡片(毛玻璃):状态灯(灰待机 / 黄闪连接中 / 薄荷在线 / 红失败)+ 大号延迟读数(在线时薄荷绿)
-- 订阅栏:订阅地址、刷新、手动导入、全列表 TCP 测速、`TUN` 全局模式开关(开启填充薄荷)
-- 节点列表:毛玻璃卡片,单击选中(薄荷绿边框+圆点,不立即连接),`● 生效中` 标记当前节点;高延迟/超时标红
-- 控制区:薄荷绿胶囊`启动`(已连接时选别的节点变`切换节点`)/ 描边`停止`
-- 关窗 = 收进托盘;托盘右键可启动/停止/退出
+- **连接**:连接按钮、当前节点、时长和延迟、分流方式、接管方式、流量图、订阅用量
+- **节点**:搜索、按地区筛选、按延迟排序、测速;同名节点标出来源
+- **规则**:规则来源、国内直连开关、策略组选择、自定义规则
+- **订阅**:添加、更新、改名、删除,粘贴导入
+- **日志**:内核日志,可搜索,可调级别
+- **设置**:外观、自启连接、端口、IPv6、TUN 协议栈、直连 DNS、日志级别、数据目录
+- 关窗 = 收进托盘;托盘菜单可启动、停止、退出
 
 ## 合规提示
 

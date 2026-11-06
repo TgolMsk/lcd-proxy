@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # Install the verified x86_64 package; no source checkout or build toolchain needed.
-package_version=1.0.0
+package_version=1.1.0
 release_tag="v${package_version}"
 package_name="lcd-proxy_${package_version}_amd64.deb"
 release_url="https://github.com/TgolMsk/lcd-proxy/releases/download/${release_tag}"
@@ -13,7 +13,7 @@ checksums_path=
 
 usage() {
   cat <<'EOF'
-LCD Proxy 1.0.0 Linux x86_64 安装器
+LCD Proxy 1.1.0 Linux x86_64 安装器
 
 用法: bash install-linux.sh [--deb FILE] [--checksums FILE] [--verify-only]
   默认           下载并校验已发布的 .deb,通过 apt 安装

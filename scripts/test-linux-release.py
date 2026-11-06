@@ -1,7 +1,7 @@
 import base64, http.server, json, os, pathlib, signal, socket, subprocess, threading, time
 import pyatspi
 
-version = os.environ.get('LCD_EXPECTED_VERSION', '1.0.0')
+version = os.environ.get('LCD_EXPECTED_VERSION', '1.1.0')
 root = pathlib.Path(os.environ['LCD_RELEASE_TEST_DIR'])
 root.mkdir(parents=True, exist_ok=True)
 env = dict(os.environ, DISPLAY=':95', XDG_CURRENT_DESKTOP='X-Cinnamon', GTK_MODULES='atk-bridge', NO_AT_BRIDGE='0')
@@ -91,15 +91,19 @@ class Handler(http.server.BaseHTTPRequestHandler):
     def log_message(self, *args):
         pass
 
-server = http.server.ThreadingHTTPServer(('127.0.0.1', 0), Handler)
+# The client always connects private addresses directly, so forwarding has to be
+# proven with a public address (TEST-NET-2, bound to loopback for this test only).
+probe_host = '198.51.100.1'
+subprocess.run(['sudo', 'ip', 'addr', 'add', f'{probe_host}/32', 'dev', 'lo'], check=True)
+server = http.server.ThreadingHTTPServer(('0.0.0.0', 0), Handler)
 threading.Thread(target=server.serve_forever, daemon=True).start()
 http_port = server.server_port
 config = {'log': {'level': 'info'}, 'inbounds': [{'type': 'shadowsocks', 'listen': '127.0.0.1', 'listen_port': ss_port, 'method': method, 'password': password}], 'outbounds': [{'type': 'direct'}]}
 (root/'upstream.json').write_text(json.dumps(config))
-state_path = pathlib.Path(env['XDG_DATA_HOME'])/'com.lcdproxy.app/state.json'
+data_dir = pathlib.Path(env['XDG_DATA_HOME'])/'com.lcdproxy.app'
 
-def state():
-    return json.loads(state_path.read_text())
+def stored(name):
+    return json.loads((data_dir/name).read_text())
 
 def mode():
     return run(['gsettings', 'get', 'org.gnome.system.proxy', 'mode'])
@@ -116,22 +120,24 @@ try:
     app = spawn(app_command, 'client')
     time.sleep(5)
     (root/'accessibility.txt').write_text('\n'.join(a.getRoleName() + ': ' + (a.name or '') for a in tree()))
-    until(lambda: find('v' + version))
+    click(until(lambda: find('设置页')))
+    until(lambda: find(version))
     print(f'PASS: installed GUI reports version {version}', flush=True)
-    entry = until(lambda: find('粘贴订阅链接'))
-    click(entry)
+    click(until(lambda: find('订阅页')))
+    click(until(lambda: find('订阅链接')))
     run(['xdotool', 'key', '--clearmodifiers', 'ctrl+a'])
     run(['xdotool', 'type', '--clearmodifiers', f'http://127.0.0.1:{http_port}/subscription'])
-    click(until(lambda: find('刷新')))
-    node = until(lambda: find(f'Release-{version}-Test'))
-    until(lambda: len(state().get('nodes', [])) == 1)
-    click(node)
-    until(lambda: bool(state().get('selectedId')))
+    run(['xdotool', 'key', '--clearmodifiers', 'Return'])
+    until(lambda: any(p['nodeCount'] == 1 for p in stored('profiles.json')['profiles']))
+    click(until(lambda: find('节点页')))
+    click(until(lambda: find(f'Release-{version}-Test')))
+    until(lambda: bool(stored('settings.json').get('selected')))
     print('PASS: real HTTP subscription import and node persistence', flush=True)
-    click(until(lambda: find('启动')))
+    click(until(lambda: find('连接页')))
+    click(until(lambda: find('连接代理')))
     until(lambda: mode() == "'manual'")
     for proxy in ['http://127.0.0.1:10808', 'socks5h://127.0.0.1:10808']:
-        response = run(['curl', '--fail', '--silent', '--show-error', '--max-time', '15', '--noproxy', '', '--proxy', proxy, f'http://127.0.0.1:{http_port}/probe'])
+        response = run(['curl', '--fail', '--silent', '--show-error', '--max-time', '15', '--noproxy', '', '--proxy', proxy, f'http://{probe_host}:{http_port}/probe'])
         assert response == body.decode(), response
     upstream_log = (root/'upstream.log').read_text()
     assert 'shadowsocks' in upstream_log and str(http_port) in upstream_log
@@ -142,7 +148,7 @@ try:
     screen = Gdk.get_default_root_window()
     screenshot = Gdk.pixbuf_get_from_window(screen, 0, 0, screen.get_width(), screen.get_height())
     screenshot.savev(str(root/'desktop-connected.png'), 'png', [], [])
-    click(until(lambda: find('停止')))
+    click(until(lambda: find('断开代理')))
     until(lambda: mode() == "'auto'")
     assert upstream.poll() is None
     print('PASS: stop restores original proxy and preserves unrelated core', flush=True)
@@ -152,6 +158,7 @@ try:
     print('PASS: installed client exits cleanly', flush=True)
 finally:
     server.shutdown()
+    subprocess.run(['sudo', 'ip', 'addr', 'del', f'{probe_host}/32', 'dev', 'lo'], check=False)
     for p in reversed(processes):
         if p.poll() is None:
             try:
