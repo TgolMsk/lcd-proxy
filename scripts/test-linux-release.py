@@ -1,7 +1,7 @@
 import base64, http.server, json, os, pathlib, signal, socket, subprocess, threading, time
 import pyatspi
 
-version = os.environ.get('LCD_EXPECTED_VERSION', '1.1.0')
+version = os.environ.get('LCD_EXPECTED_VERSION', '1.1.1')
 root = pathlib.Path(os.environ['LCD_RELEASE_TEST_DIR'])
 root.mkdir(parents=True, exist_ok=True)
 env = dict(os.environ, DISPLAY=':95', XDG_CURRENT_DESKTOP='X-Cinnamon', GTK_MODULES='atk-bridge', NO_AT_BRIDGE='0')

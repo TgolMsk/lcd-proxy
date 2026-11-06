@@ -28,7 +28,7 @@
 
 提供 **x86_64 `.deb` 安装包与 `.AppImage` 便携包**,内置 sing-box 1.12.4。
 
-[下载 Linux 安装构件](https://github.com/TgolMsk/lcd-proxy/releases/tag/v1.1.0)。
+[下载 Linux 安装构件](https://github.com/TgolMsk/lcd-proxy/releases/tag/v1.1.1)。
 也可在 Linux 终端运行构件安装器,直接下载、校验 SHA-256 并安装:
 
 ```sh
@@ -38,7 +38,7 @@ bash install-linux.sh
 
 ```sh
 # 推荐安装方式:在安装包所在目录运行
-sudo apt install ./lcd-proxy_1.1.0_amd64.deb
+sudo apt install ./lcd-proxy_1.1.1_amd64.deb
 # 在应用菜单打开 LCD Proxy,导入订阅/节点后点击「启动」
 ```
 
@@ -70,8 +70,8 @@ npm run tauri dev # 起开发窗口(UI、解析、订阅逻辑均可在 Mac 上�
 从 **1.0.0** 开始,Windows 与 Linux 使用同一版本号、同一个 `vX.Y.Z` 标签与 Release。
 
 1. 同步 `package.json`、`package-lock.json`、Tauri 配置、Cargo 清单/锁文件和 Linux 安装器版本。
-2. 运行 `node scripts/check-version.mjs v1.1.0`,提交并推送代码。
-3. 推送标签:`git tag v1.1.0 && git push origin v1.1.0`。
+2. 运行 `node scripts/check-version.mjs v1.1.1`,提交并推送代码。
+3. 推送标签:`git tag v1.1.1 && git push origin v1.1.1`。
 4. `Release (Windows + Linux)` 分别构建 Windows x64 `.exe`/`.msi` 与 Linux x86_64 `.deb`/`.AppImage`。
 5. 两个平台成功后验证 Windows 更新签名,生成完整 `SHA256SUMS`,将安装器、更新清单和各平台安装包统一公开发布。
 
