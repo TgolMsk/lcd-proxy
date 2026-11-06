@@ -4,9 +4,11 @@
 
 mod config;
 mod elevate;
+mod fetch;
 mod kernel;
 mod sysproxy;
 
+use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 use tauri::menu::{Menu, MenuItem};
@@ -16,13 +18,30 @@ use tauri::{AppHandle, Emitter, Manager, State};
 // ---------------- 命令 ----------------
 
 #[tauri::command]
-async fn start_kernel(app: AppHandle, config_json: String) -> Result<(), String> {
+async fn start_kernel(app: AppHandle, config_json: String) -> Result<kernel::StartReport, String> {
     kernel::start(app, config_json).await
 }
 
 #[tauri::command]
-fn stop_kernel(state: State<'_, kernel::KernelState>) -> Result<(), String> {
-    kernel::stop(&state)
+async fn stop_kernel(app: AppHandle) -> Result<(), String> {
+    kernel::stop_and_wait(&app.state::<kernel::KernelState>()).await
+}
+
+#[tauri::command]
+async fn kernel_api(
+    app: AppHandle,
+    method: String,
+    path: String,
+    body: Option<String>,
+    timeout_ms: u64,
+) -> Result<String, String> {
+    let state = app.state::<kernel::KernelState>();
+    kernel::api_request(&state, &method, &path, body, timeout_ms).await
+}
+
+#[tauri::command]
+fn kernel_logs(state: State<'_, kernel::KernelState>) -> Vec<String> {
+    state.logs()
 }
 
 #[tauri::command]
@@ -43,7 +62,7 @@ fn relaunch_as_admin(app: AppHandle) -> Result<(), String> {
     // 这里先杀内核 + 清残留 + 清系统代理,避免孤儿内核占住 10808 端口。
     let state = app.state::<kernel::KernelState>();
     let _ = kernel::stop(&state);
-    kernel::kill_stray_kernels();
+    kernel::kill_stray_kernels(&app);
     let _ = sysproxy::set(false, "");
     elevate::relaunch_as_admin()
 }
@@ -64,35 +83,19 @@ async fn tcp_ping(host: String, port: u16, timeout_ms: u64) -> Result<u64, Strin
     }
 }
 
-/// 拉取订阅内容(在 Rust 侧发请求,避开 WebView 的 CORS 限制)
+/// 下载订阅或规则文件
 #[tauri::command]
-async fn fetch_subscription(url: String) -> Result<String, String> {
-    if !url.starts_with("http://") && !url.starts_with("https://") {
-        return Err("订阅链接必须以 http:// 或 https:// 开头".into());
-    }
-    let client = reqwest::Client::builder()
-        .user_agent("lcd-proxy/0.1 (sing-box)")
-        .timeout(Duration::from_secs(20))
-        .build()
-        .map_err(|e| format!("创建 HTTP 客户端失败:{e}"))?;
-    let resp = client
-        .get(&url)
-        .send()
-        .await
-        .map_err(|e| format!("请求失败:{e}"))?;
-    if !resp.status().is_success() {
-        return Err(format!("服务器返回 HTTP {}", resp.status().as_u16()));
-    }
-    resp.text().await.map_err(|e| format!("读取响应失败:{e}"))
+async fn fetch_subscription(app: AppHandle, url: String) -> Result<fetch::Fetched, String> {
+    let port = app.state::<kernel::KernelState>().proxy_port();
+    fetch::fetch(&url, port).await
 }
 
-/// 更新前清理:停内核 + 杀残留 + 清系统代理。
+/// 更新前清理:停内核并等它退出,清系统代理。
 /// 否则安装包无法覆盖正在运行(被占用)的 sing-box.exe,报 "Error opening file for writing"。
 #[tauri::command]
-fn prepare_update(app: AppHandle) -> Result<(), String> {
-    let state = app.state::<kernel::KernelState>();
-    let _ = kernel::stop(&state);
-    kernel::kill_stray_kernels();
+async fn prepare_update(app: AppHandle) -> Result<(), String> {
+    let _ = kernel::stop_and_wait(&app.state::<kernel::KernelState>()).await;
+    kernel::kill_stray_kernels(&app);
     let _ = sysproxy::set(false, "");
     Ok(())
 }
@@ -110,14 +113,32 @@ fn reveal_config_dir(app: AppHandle) -> Result<(), String> {
     r.map(|_| ()).map_err(|e| format!("打开目录失败:{e}"))
 }
 
-#[tauri::command]
-fn load_state(app: AppHandle) -> Result<String, String> {
-    config::load_state_file(&app)
+// 存储命令放到线程池执行(async):fsync 不能卡住主线程;
+// STORE_LOCK 保证同一时刻只有一个写入,临时文件不会互相覆盖。
+static STORE_LOCK: Mutex<()> = Mutex::new(());
+
+#[tauri::command(async)]
+fn store_read(app: AppHandle, name: String) -> Result<Option<config::StoreFile>, String> {
+    let _guard = STORE_LOCK.lock().unwrap();
+    config::store_read(&app, &name)
 }
 
-#[tauri::command]
-fn save_state(app: AppHandle, json: String) -> Result<(), String> {
-    config::save_state_file(&app, &json)
+#[tauri::command(async)]
+fn store_write(app: AppHandle, name: String, json: String) -> Result<(), String> {
+    let _guard = STORE_LOCK.lock().unwrap();
+    config::store_write(&app, &name, &json)
+}
+
+#[tauri::command(async)]
+fn store_delete(app: AppHandle, name: String) -> Result<(), String> {
+    let _guard = STORE_LOCK.lock().unwrap();
+    config::store_delete(&app, &name)
+}
+
+#[tauri::command(async)]
+fn store_retire(app: AppHandle, name: String, new_name: String) -> Result<(), String> {
+    let _guard = STORE_LOCK.lock().unwrap();
+    config::store_retire(&app, &name, &new_name)
 }
 
 // ---------------- 清理与托盘 ----------------
@@ -208,6 +229,8 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             start_kernel,
             stop_kernel,
+            kernel_api,
+            kernel_logs,
             set_system_proxy,
             is_elevated,
             relaunch_as_admin,
@@ -215,20 +238,29 @@ fn main() {
             prepare_update,
             tcp_ping,
             fetch_subscription,
-            load_state,
-            save_state,
+            store_read,
+            store_write,
+            store_delete,
+            store_retire,
         ])
         .setup(|app| {
             #[cfg(target_os = "linux")]
             setup_exit_signals(app.handle());
+            // 上次异常退出时恢复用户原来的系统代理
             #[cfg(target_os = "linux")]
-            if let Err(error) =
-                sysproxy::init(config::data_dir(app.handle())?.join("proxy-backup.json"))
-            {
+            let restored =
+                sysproxy::init(config::data_dir(app.handle())?.join("proxy-backup.json"));
+            #[cfg(target_os = "windows")]
+            let restored = sysproxy::init(
+                config::data_dir(app.handle())?.join("proxy-backup.json"),
+                &format!("127.0.0.1:{}", config::DEFAULT_PORT),
+            );
+            #[cfg(any(target_os = "linux", target_os = "windows"))]
+            if let Err(error) = restored {
                 eprintln!("恢复上次系统代理失败:{error}");
             }
-            // 清掉上次异常退出/提权重启残留的孤儿内核,避免占用端口
-            kernel::kill_stray_kernels();
+            // 清掉上次异常退出残留的孤儿内核,避免占用端口
+            kernel::kill_stray_kernels(app.handle());
             #[cfg(target_os = "linux")]
             if let Err(error) = setup_tray(app.handle()) {
                 eprintln!("桌面托盘不可用:{error}");

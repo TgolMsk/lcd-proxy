@@ -6,7 +6,10 @@
     "category": "Utility",
     "shortDescription": "订阅式网络代理客户端",
     "externalBin": ["binaries/lcd-proxy-core"],
-    "resources": ["resources/sing-box/*"],
+    "resources": {
+      "resources/sing-box/*": "resources/sing-box/",
+      "resources/rules/*.srs": "rules/"
+    },
     "linux": {
       "deb": {
         "depends": [

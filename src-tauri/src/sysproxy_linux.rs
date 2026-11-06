@@ -109,7 +109,7 @@ impl DesktopProxy {
             (
                 schema.to_string(),
                 "ignore-hosts",
-                "['localhost', '127.0.0.0/8', '::1', '*.local', '10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16']".to_string(),
+                "['localhost', '127.0.0.0/8', '::1', '*.local', '*.lan', '*.localdomain', '*.home.arpa', '*.internal', '10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16']".to_string(),
             ),
         ];
         for protocol in ["http", "https", "socks", "ftp"] {
