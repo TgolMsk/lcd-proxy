@@ -47,6 +47,17 @@ function regionOfFlag(name: string): { code: string; label: string } | null {
   return { code: normalized, label: known?.[1] ?? normalized };
 }
 
+/** 内核的内置出站,没有地区,名称显示中文 */
+const BUILTIN: Record<string, string> = {
+  DIRECT: "直连",
+  REJECT: "拦截",
+  "REJECT-DROP": "拦截",
+};
+
+export function isBuiltin(name: string): boolean {
+  return name.toUpperCase() in BUILTIN;
+}
+
 export interface NodeLabel {
   /** 地区标识,没有识别出来时为 null */
   code: string | null;
@@ -57,6 +68,9 @@ export interface NodeLabel {
 }
 
 export function nodeLabel(name: string): NodeLabel {
+  if (isBuiltin(name)) {
+    return { code: null, region: null, name: BUILTIN[name.toUpperCase()], tags: [] };
+  }
   const stripped = name.replace(FLAG_PAIR, "").trim();
   const parts = stripped.split("|").map((p) => p.trim()).filter(Boolean);
   const text = REGIONS.find(([, , pattern]) => pattern.test(stripped));

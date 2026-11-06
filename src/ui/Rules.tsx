@@ -14,9 +14,6 @@ import { Empty, PageHeader, Row, Switch } from "./controls";
 import { groupLabel, nodeLabel } from "./region";
 
 function memberName(member: string) {
-  const upper = member.toUpperCase();
-  if (upper === "DIRECT") return "直连";
-  if (upper === "REJECT" || upper === "REJECT-DROP") return "拦截";
   const label = nodeLabel(member);
   return [label.name, ...label.tags].join(" ");
 }

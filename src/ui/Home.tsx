@@ -41,6 +41,8 @@ function chartPath(values: number[], max: number, width: number, height: number)
 
 function TrafficChart() {
   const { down, up, totalDown, totalUp, downHistory, upHistory } = useTraffic();
+  // 断开后内核不再上报,最后一次的速度不能留在界面上
+  const online = useConnection().status === "on";
   const max = Math.max(64 * 1024, ...downHistory, ...upHistory);
   const width = 600;
   const height = 96;
@@ -52,12 +54,12 @@ function TrafficChart() {
       <div className="traffic-numbers">
         <div>
           <div className="stat-label">下行</div>
-          <div className="stat-value">{formatSpeed(down)}</div>
+          <div className="stat-value">{formatSpeed(online ? down : 0)}</div>
           <div className="stat-sub">本次 {formatBytes(totalDown)}</div>
         </div>
         <div>
           <div className="stat-label">上行</div>
-          <div className="stat-value">{formatSpeed(up)}</div>
+          <div className="stat-value">{formatSpeed(online ? up : 0)}</div>
           <div className="stat-sub">本次 {formatBytes(totalUp)}</div>
         </div>
       </div>
